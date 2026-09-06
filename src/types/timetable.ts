@@ -28,8 +28,36 @@ export const TIME_SLOT_META: Record<TimeSlot, {label: string; start: number; end
 export const CLASS_PERIODS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 export const WEEK_DAYS = [WeekDay.MONDAY, WeekDay.TUESDAY, WeekDay.WEDNESDAY, WeekDay.THURSDAY, WeekDay.FRIDAY, WeekDay.SATURDAY, WeekDay.SUNDAY];
-export const SEMESTER_WEEKS = 18;
+export const DEFAULT_SEMESTER_WEEKS = 18;
+export const DEFAULT_MAX_PERIODS = 13;
 export const WEEK_DAY_LABELS: Record<WeekDay, string> = { Monday: '周一', Tuesday: '周二', Wednesday: '周三', Thursday: '周四', Friday: '周五', Saturday: '周六', Sunday: '周日' };
+
+/** Compute semester weeks from imported courses (max week number, fallback to default) */
+export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
+  let max = DEFAULT_SEMESTER_WEEKS;
+  for (const course of courses) {
+    if (course.weekPattern === 'specific' && course.specificWeeks) {
+      for (const w of course.specificWeeks) if (w > max) max = w;
+    }
+  }
+  return max;
+}
+
+/** Compute max periods per day from imported courses (max end period, excluding evening) */
+export function computeMaxPeriods(courses: ScheduledCourse[]): number {
+  let max = DEFAULT_MAX_PERIODS;
+  for (const course of courses) {
+    if (course.timeSlot === TimeSlot.EVENING) continue;
+    const end = TIME_SLOT_META[course.timeSlot].end;
+    if (end > max) max = end;
+  }
+  return max;
+}
+
+/** Generate array of period numbers [1, 2, ..., maxPeriods] */
+export function periodsArray(maxPeriods: number): number[] {
+  return Array.from({ length: maxPeriods }, (_, i) => i + 1);
+}
 
 export interface ScheduledCourse {
   id: string;

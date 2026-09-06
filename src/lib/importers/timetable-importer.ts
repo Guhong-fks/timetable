@@ -1,7 +1,7 @@
 import mammoth from 'mammoth';
 import { DomUtils, parseDocument } from 'htmlparser2';
 import type { Element as HtmlElement } from 'domhandler';
-import { ScheduledCourse, TimeSlot, TimetableData, WeekDay, coursesToTimetable, SEMESTER_WEEKS } from '@/types/timetable';
+import { ScheduledCourse, TimeSlot, TimetableData, WeekDay, coursesToTimetable, DEFAULT_SEMESTER_WEEKS } from '@/types/timetable';
 import { validateFile, sanitizeText, ParseResourceLimiter } from '../security';
 
 export type ImportResult = { courses: ScheduledCourse[]; timetable: TimetableData; warnings: string[] };
@@ -50,7 +50,7 @@ function parseWeekPattern(weeksStr: string): { weekPattern: 'full' | 'specific';
   if (sorted.length === 0) return { weekPattern: 'specific', specificWeeks: [] };
 
   const isContinuous = sorted.every((v, i) => i === 0 || v === sorted[i - 1] + 1);
-  const isFullSemester = isContinuous && sorted[0] === 1 && sorted[sorted.length - 1] >= SEMESTER_WEEKS;
+  const isFullSemester = isContinuous && sorted[0] === 1 && sorted[sorted.length - 1] >= DEFAULT_SEMESTER_WEEKS;
 
   return isFullSemester
     ? { weekPattern: 'full', specificWeeks: undefined }

@@ -7,7 +7,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTimetable } from '@/state/timetable-context';
 import { useTheme } from '@/hooks/use-theme';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
-import { CLASS_PERIODS, coursesForWeek, coursesToTimetable, SEMESTER_WEEKS, TIME_SLOT_META, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
+import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, TIME_SLOT_META, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
 
 // Compact layout constants for mobile timetable
 const DAY_WIDTH = 52;
@@ -25,7 +25,7 @@ const SHORT_DAY_LABELS: Record<typeof WEEK_DAYS[number], string> = {
 
 export default function TimetableScreen() {
   const theme = useTheme();
-  const { courses, isHydrated, semesterStartDate } = useTimetable();
+  const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods } = useTimetable();
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [weekInput, setWeekInput] = useState('1');
   const [selectedCourse, setSelectedCourse] = useState<ScheduledCourse | null>(null);
@@ -44,12 +44,12 @@ export default function TimetableScreen() {
     const today = startOfLocalDay(new Date());
     const elapsedDays = Math.floor((today.getTime() - start.getTime()) / 86400000);
     // Before semester starts -> week 1; after semester ends -> last week
-    const currentWeek = Math.min(Math.max(Math.floor(elapsedDays / 7) + 1, 1), SEMESTER_WEEKS);
+    const currentWeek = Math.min(Math.max(Math.floor(elapsedDays / 7) + 1, 1), semesterWeeks);
     startTransition(() => {
       setSelectedWeek(currentWeek);
       setWeekInput(String(currentWeek));
     });
-  }, [semesterStartDate]);
+  }, [semesterStartDate, semesterWeeks]);
 
   // Jump on mount and when semester start date changes
   useEffect(() => { jumpToCurrentWeek(); }, [jumpToCurrentWeek]);
@@ -96,7 +96,7 @@ export default function TimetableScreen() {
   };
 
   const selectWeek = (week: number) => {
-    const nextWeek = Math.min(Math.max(week, 1), SEMESTER_WEEKS);
+    const nextWeek = Math.min(Math.max(week, 1), semesterWeeks);
     setSelectedWeek(nextWeek);
     setWeekInput(String(nextWeek));
   };
@@ -192,11 +192,11 @@ export default function TimetableScreen() {
               style={[styles.weekInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.backgroundElement }]}
               accessibilityLabel="当前周次"
             />
-            <ThemedText type="small" themeColor="textSecondary" style={styles.weekTotal}>/ {SEMESTER_WEEKS}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.weekTotal}>/ {semesterWeeks}</ThemedText>
             <Pressable
               onPress={() => selectWeek(selectedWeek + 1)}
-              disabled={selectedWeek === SEMESTER_WEEKS}
-              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === SEMESTER_WEEKS && styles.disabledBtn]}
+              disabled={selectedWeek === semesterWeeks}
+              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === semesterWeeks && styles.disabledBtn]}
               accessibilityRole="button"
               accessibilityLabel="下一周"
             >
@@ -230,7 +230,7 @@ export default function TimetableScreen() {
                 <View style={styles.gridBody}>
                   {/* Time slots column - compact period numbers with times */}
                   <View style={[styles.timeColumn, { borderRightColor: theme.textSecondary + '33', backgroundColor: theme.backgroundElement }]}>
-                    {CLASS_PERIODS.map(period => (
+                    {periodsArray(maxPeriods).map(period => (
                       <View key={period} style={[styles.periodRow, { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + '22' }]}>
                         <Pressable style={styles.timeCell} onPress={() => openPeriodEditor(period)} accessibilityRole="button" accessibilityLabel={`修改第${period}节上课时间`}>
                           <ThemedText type="smallBold" style={styles.periodNumber}>{period}</ThemedText>
@@ -244,7 +244,7 @@ export default function TimetableScreen() {
                   {WEEK_DAYS.map(day => (
                     <View key={day} style={[styles.dayColumn, { borderRightColor: theme.textSecondary + '22' }]}>
                       {/* Grid lines */}
-                      {CLASS_PERIODS.map(period => (
+                      {periodsArray(maxPeriods).map(period => (
                         <View key={period} style={[styles.gridLine, { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + '15', backgroundColor: theme.background }]} />
                       ))}
                       {/* Courses */}
@@ -357,16 +357,16 @@ function formatClassLabel(classInfo: ScheduledCourse['classes'][number]): string
   return normalizedMajor ? `${grade} ${normalizedMajor}` : grade;
 }
 
-function createDefaultPeriodTimes(): Record<number, string> {
-  return CLASS_PERIODS.reduce<Record<number, string>>((times, period) => {
+function createDefaultPeriodTimes(maxPeriods: number = DEFAULT_MAX_PERIODS): Record<number, string> {
+  return periodsArray(maxPeriods).reduce<Record<number, string>>((times, period) => {
     const totalMinutes = 8 * 60 + (period - 1) * (45 + 5);
     times[period] = formatMinutes(totalMinutes);
     return times;
   }, {});
 }
 
-function createDefaultPeriodDurations(): Record<number, number> {
-  return CLASS_PERIODS.reduce<Record<number, number>>((durations, period) => {
+function createDefaultPeriodDurations(maxPeriods: number = DEFAULT_MAX_PERIODS): Record<number, number> {
+  return periodsArray(maxPeriods).reduce<Record<number, number>>((durations, period) => {
     durations[period] = 45;
     return durations;
   }, {});
