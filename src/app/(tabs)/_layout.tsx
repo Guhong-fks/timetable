@@ -1,11 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Image, useColorScheme } from 'react-native';
-
-const iconStyle = (color: string, size: number) => ({
-  width: size,
-  height: size,
-  tintColor: color,
-});
+import { SymbolView } from 'expo-symbols';
+import { useColorScheme } from 'react-native';
 
 export default function TabLayout() {
   const scheme = useColorScheme();
@@ -26,7 +21,7 @@ export default function TabLayout() {
         options={{
           title: '课表',
           tabBarIcon: ({ color, size }) => (
-            <Image source={require('../../../assets/images/tabIcons/home.png')} style={iconStyle(String(color), size)} />
+            <SymbolView name={{ ios: 'tablecells', android: 'table_view', web: 'table_view' }} tintColor={color} size={size} weight="semibold" />
           ),
         }}
       />
@@ -35,7 +30,7 @@ export default function TabLayout() {
         options={{
           title: '导入',
           tabBarIcon: ({ color, size }) => (
-            <Image source={require('../../../assets/images/tabIcons/explore.png')} style={iconStyle(String(color), size)} />
+            <SymbolView name={{ ios: 'doc.badge.plus', android: 'file_upload', web: 'file_upload' }} tintColor={color} size={size} weight="semibold" />
           ),
         }}
       />
@@ -44,7 +39,7 @@ export default function TabLayout() {
         options={{
           title: '设置',
           tabBarIcon: ({ color, size }) => (
-            <Image source={require('../../../assets/images/tabIcons/explore.png')} style={iconStyle(String(color), size)} />
+            <SymbolView name={{ ios: 'gearshape', android: 'settings', web: 'settings' }} tintColor={color} size={size} weight="semibold" />
           ),
         }}
       />

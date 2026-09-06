@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -14,11 +15,19 @@ export default function ImportScreen() {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [startDateInput, setStartDateInput] = useState(semesterStartDate ?? '');
+  const [lastImportTime, setLastImportTime] = useState(0);
+  const IMPORT_COOLDOWN_MS = 3000;
 
   async function choose(file?: { name: string; size?: number; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; uri: string }) {
     if (!file) return;
+    const now = Date.now();
+    if (now - lastImportTime < IMPORT_COOLDOWN_MS && !loading) {
+      setStatus(`请等待 ${Math.ceil((IMPORT_COOLDOWN_MS - (now - lastImportTime)) / 1000)} 秒后再试`);
+      return;
+    }
     setLoading(true);
     setStatus('');
+    setLastImportTime(now);
     try {
       const result = await parseTimetableFile(file);
       replaceCourses(result.courses, file.name);
@@ -83,6 +92,7 @@ export default function ImportScreen() {
             onPress={() => Platform.OS === 'web' ? input.current?.click() : void chooseNativeFile()}
             style={styles.button}
           >
+            <Ionicons name="cloud-upload-outline" size={20} color="#FFF" style={styles.buttonIcon} />
             <ThemedText style={styles.buttonText}>{loading ? '正在解析...' : '选择 .docx 文件'}</ThemedText>
           </Pressable>
           {Platform.OS === 'web' && (
@@ -101,7 +111,7 @@ export default function ImportScreen() {
           {importedFileName && <ThemedText themeColor="textSecondary">当前文件：{importedFileName}</ThemedText>}
           <ThemedText type="subtitle">说明</ThemedText>
           <ThemedText themeColor="textSecondary">课程单元格需要包含课程代码、周次和节次。同一格的多门课程会自动拆分，数据会保存在当前设备。</ThemedText>
-          {!!courses.length && <Pressable onPress={clearCourses} style={styles.clear}><ThemedText themeColor="textSecondary">清空当前课表</ThemedText></Pressable>}
+          {!!courses.length && <Pressable onPress={clearCourses} style={styles.clear}><Ionicons name="trash-outline" size={16} color="#666" style={styles.clearIcon} /><ThemedText themeColor="textSecondary">清空当前课表</ThemedText></Pressable>}
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -124,8 +134,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
   },
   currentDate: { marginTop: Spacing.one, fontSize: 13 },
-  button: { padding: Spacing.three, backgroundColor: '#153B50', borderRadius: Spacing.two, alignItems: 'center' },
+  button: { padding: Spacing.three, backgroundColor: '#153B50', borderRadius: Spacing.two, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: Spacing.one },
+  buttonIcon: { marginRight: Spacing.one },
   buttonText: { color: '#FFF', fontWeight: '700' },
   status: { padding: Spacing.three, borderRadius: Spacing.two },
-  clear: { padding: Spacing.two, borderWidth: 1, borderColor: '#D8DADF', alignItems: 'center', borderRadius: Spacing.two }
+  clear: { padding: Spacing.two, borderWidth: 1, borderColor: '#D8DADF', alignItems: 'center', borderRadius: Spacing.two, flexDirection: 'row', gap: Spacing.one },
+  clearIcon: {}
 });

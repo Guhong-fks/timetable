@@ -53,8 +53,10 @@ export function ErrorBoundary({ children, fallback }: Props) {
   const [hasError, setHasError] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const handleError = (error: Error, errorInfo: ErrorInfo) => {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+  const handleError = (error: Error, _errorInfo: ErrorInfo) => {
+    if (__DEV__) {
+      console.error('ErrorBoundary caught an error:', error.message);
+    }
     setError(error);
     setHasError(true);
   };

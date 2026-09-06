@@ -1,4 +1,5 @@
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -56,6 +57,7 @@ export default function SettingsScreen() {
             </ThemedText>
             {courses.length > 0 && (
               <Pressable onPress={clearCourses} style={styles.destructiveButton}>
+                <Ionicons name="trash-outline" size={16} color="#E57373" style={styles.destructiveIcon} />
                 <ThemedText style={styles.destructiveText}>清空所有课程数据</ThemedText>
               </Pressable>
             )}
@@ -82,6 +84,7 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   fileInfo: { fontSize: 14 },
   hint: { marginTop: Spacing.one },
-  destructiveButton: { padding: Spacing.two, borderWidth: 1, borderColor: '#E57373', alignItems: 'center', borderRadius: Spacing.two, marginTop: Spacing.two },
+  destructiveButton: { padding: Spacing.two, borderWidth: 1, borderColor: '#E57373', alignItems: 'center', borderRadius: Spacing.two, marginTop: Spacing.two, flexDirection: 'row', gap: Spacing.one },
+  destructiveIcon: {},
   destructiveText: { color: '#E57373', fontWeight: '600' },
 });

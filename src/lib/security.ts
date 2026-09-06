@@ -61,6 +61,18 @@ export function sanitizeText(text: string, maxLength: number = MAX_CELL_TEXT_LEN
 }
 
 /**
+ * Escape HTML entities for safe rendering in HTML context (web platform)
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+/**
  * Sanitize filename to prevent path traversal
  */
 export function sanitizeFilename(filename: string): string {
