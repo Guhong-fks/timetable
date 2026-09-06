@@ -9,14 +9,18 @@ interface Props {
 
 // Inner component that uses hooks (called unconditionally)
 function ErrorFallback({ error, onReset }: { error: Error | null; onReset: () => void }) {
-  const theme = useTheme();
+  let theme;
+  try { theme = useTheme(); } catch { theme = null; }
+  const bg = theme?.background ?? '#FFFFFF';
+  const text = theme?.text ?? '#000000';
+  const secondary = theme?.textSecondary ?? '#666666';
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <Text style={[styles.title, { color: theme.text }]}>出错了</Text>
-      <Text style={[styles.message, { color: theme.textSecondary }]}>
+    <View style={[styles.container, { backgroundColor: bg }]}>
+      <Text style={[styles.title, { color: text }]}>出错了</Text>
+      <Text style={[styles.message, { color: secondary }]}>
         {error?.message || '未知错误'}
       </Text>
-      <Text style={[styles.hint, { color: theme.textSecondary }]}>
+      <Text style={[styles.hint, { color: secondary }]}>
         请尝试重新启动应用
       </Text>
       <Button title="重新加载" onPress={onReset} />

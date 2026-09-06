@@ -1,5 +1,5 @@
-import { startTransition, useState, useMemo, useEffect } from 'react';
-import { ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
+import { startTransition, useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { AppState, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -36,19 +36,31 @@ export default function TimetableScreen() {
   const [periodTimeInput, setPeriodTimeInput] = useState('');
   const [periodDurationInput, setPeriodDurationInput] = useState('45');
 
-  // Auto-detect current week based on semester start date
-  useEffect(() => {
+  // Auto-jump to current week based on today's date
+  const jumpToCurrentWeek = useCallback(() => {
     if (!semesterStartDate) return;
     const start = parseLocalDate(semesterStartDate);
     if (!start) return;
     const today = startOfLocalDay(new Date());
     const elapsedDays = Math.floor((today.getTime() - start.getTime()) / 86400000);
+    // Before semester starts -> week 1; after semester ends -> last week
     const currentWeek = Math.min(Math.max(Math.floor(elapsedDays / 7) + 1, 1), SEMESTER_WEEKS);
     startTransition(() => {
       setSelectedWeek(currentWeek);
       setWeekInput(String(currentWeek));
     });
   }, [semesterStartDate]);
+
+  // Jump on mount and when semester start date changes
+  useEffect(() => { jumpToCurrentWeek(); }, [jumpToCurrentWeek]);
+
+  // Jump when app returns to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') jumpToCurrentWeek();
+    });
+    return () => subscription.remove();
+  }, [jumpToCurrentWeek]);
 
   // Load persisted period times and durations
   useEffect(() => {
@@ -121,8 +133,8 @@ export default function TimetableScreen() {
       accessibilityRole="button"
       accessibilityLabel={`${course.name}，${course.location.building} ${course.location.room}`}
     >
-      <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5} ellipsizeMode="clip">{course.name}</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4} ellipsizeMode="clip">
+      <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5}>{course.name}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4}>
         {[course.location.building, course.location.room].filter(v => v && v !== '未填写').join(' ') || '未填写'}
       </ThemedText>
     </Pressable>

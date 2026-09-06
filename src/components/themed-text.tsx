@@ -20,7 +20,8 @@ export function ThemedText({
   themeColor?: 'text' | 'background' | 'backgroundElement' | 'backgroundSelected' | 'textSecondary';
   ellipsizeMode?: 'head' | 'middle' | 'tail' | 'clip';
 }) {
-  const theme = useTheme();
+  let theme;
+  try { theme = useTheme(); } catch { theme = null; }
   const color = theme?.[themeColor] ?? DEFAULT_COLORS[themeColor] ?? '#000000';
   return (
     <Text

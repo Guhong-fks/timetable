@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -9,10 +9,11 @@ import { parseTimetableFile } from '@/lib/importers/timetable-importer';
 import { useTimetable } from '@/state/timetable-context';
 
 export default function ImportScreen() {
-  const input = useRef<HTMLInputElement>(null);
-  const { replaceCourses, clearCourses, courses, importedFileName } = useTimetable();
+  const input = useRef<HTMLInputElement | null>(null);
+  const { replaceCourses, clearCourses, courses, importedFileName, semesterStartDate, setSemesterStartDate } = useTimetable();
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [startDateInput, setStartDateInput] = useState(semesterStartDate ?? '');
 
   async function choose(file?: { name: string; size?: number; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; uri: string }) {
     if (!file) return;
@@ -43,19 +44,49 @@ export default function ImportScreen() {
     }
   }
 
+  const handleDateChange = (text: string) => {
+    setStartDateInput(text);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+      setSemesterStartDate(text);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safe}>
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText type="title">导入课表</ThemedText>
           <ThemedText themeColor="textSecondary">选择你的 Word 课表文件 (.docx)。</ThemedText>
+
+          <ThemedView type="backgroundElement" style={styles.section}>
+            <ThemedText type="subtitle">学期开始日期</ThemedText>
+                        <ThemedText themeColor="textSecondary" style={styles.hint}>
+                          设置第一周周一的日期，用于在课表中显示具体上课日期
+                        </ThemedText>
+                        <TextInput
+                          value={startDateInput}
+                          onChangeText={handleDateChange}
+                          placeholder="YYYY-MM-DD (例如 2025-02-17)"
+                          placeholderTextColor="#999"
+                          keyboardType="numeric"
+                          style={styles.dateInput}
+                        />
+            {semesterStartDate && (
+              <ThemedText themeColor="textSecondary" style={styles.currentDate}>
+                当前设置：{semesterStartDate} (第1周周一)
+              </ThemedText>
+            )}
+          </ThemedView>
+
+          <ThemedText type="subtitle">选择课表文件</ThemedText>
           <Pressable
             onPress={() => Platform.OS === 'web' ? input.current?.click() : void chooseNativeFile()}
             style={styles.button}
           >
             <ThemedText style={styles.buttonText}>{loading ? '正在解析...' : '选择 .docx 文件'}</ThemedText>
           </Pressable>
-          {Platform.OS === 'web' && <input
+          {Platform.OS === 'web' && (
+            <input
               ref={input}
               type="file"
               accept=".docx"
@@ -64,7 +95,8 @@ export default function ImportScreen() {
                 const file = event.target.files?.[0];
                 if (file) void choose({ name: file.name, size: file.size, arrayBuffer: () => file.arrayBuffer() });
               }}
-            />}
+            />
+          )}
           {status && <ThemedView type="backgroundElement" style={styles.status}><ThemedText>{status}</ThemedText></ThemedView>}
           {importedFileName && <ThemedText themeColor="textSecondary">当前文件：{importedFileName}</ThemedText>}
           <ThemedText type="subtitle">说明</ThemedText>
@@ -80,6 +112,18 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center' },
   content: { padding: Spacing.four, gap: Spacing.three },
+  section: { padding: Spacing.three, borderRadius: Spacing.two, gap: Spacing.two, marginBottom: Spacing.two },
+  hint: { fontSize: 12, marginBottom: Spacing.one, opacity: 0.7 },
+  dateInput: {
+    borderWidth: 1,
+    borderColor: '#D8DADF',
+    borderRadius: Spacing.two,
+    padding: Spacing.two,
+    fontSize: 16,
+    color: '#000',
+    backgroundColor: '#FFF',
+  },
+  currentDate: { marginTop: Spacing.one, fontSize: 13 },
   button: { padding: Spacing.three, backgroundColor: '#153B50', borderRadius: Spacing.two, alignItems: 'center' },
   buttonText: { color: '#FFF', fontWeight: '700' },
   status: { padding: Spacing.three, borderRadius: Spacing.two },

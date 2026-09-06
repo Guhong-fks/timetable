@@ -12,6 +12,7 @@ interface ContextValue {
   semesterStartDate?: string;
   replaceCourses: (courses: ScheduledCourse[], name?: string, semesterStartDate?: string) => void;
   clearCourses: () => void;
+  setSemesterStartDate: (date: string) => void;
 }
 
 const TimetableContext = createContext<ContextValue | null>(null);
@@ -57,13 +58,14 @@ export function TimetableProvider({ children }: PropsWithChildren) {
     replaceCourses: (next: ScheduledCourse[], name?: string, startDate?: string) => {
       setCourses(next);
       setImportedFileName(name);
-      setSemesterStartDate(startDate);
+      if (startDate !== undefined) setSemesterStartDate(startDate);
     },
     clearCourses: () => {
       setCourses([]);
       setImportedFileName(undefined);
       setSemesterStartDate(undefined);
     },
+    setSemesterStartDate: (date: string) => setSemesterStartDate(date),
   }), [courses, importedFileName, semesterStartDate, isHydrated]);
 
   return <TimetableContext.Provider value={value}>{children}</TimetableContext.Provider>;
