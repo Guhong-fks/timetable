@@ -1,0 +1,577 @@
+import { startTransition, useState, useMemo, useEffect } from 'react';
+import { ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTimetable } from '@/state/timetable-context';
+import { useTheme } from '@/hooks/use-theme';
+import { getStoredValue, setStoredValue } from '@/lib/storage';
+import { CLASS_PERIODS, coursesForWeek, coursesToTimetable, SEMESTER_WEEKS, TIME_SLOT_META, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
+
+// Compact layout constants for mobile timetable
+const DAY_WIDTH = 52;
+const TIME_COL_WIDTH = 28;
+const SLOT_BASE_HEIGHT = 72;
+const GAP = 2;
+const PERIOD_TIMES_KEY = 'course-table-app.period-times.v2';
+const PERIOD_DURATIONS_KEY = 'course-table-app.period-durations.v1';
+
+// Short day labels: 一、二、三、四、五、六、日
+const SHORT_DAY_LABELS: Record<typeof WEEK_DAYS[number], string> = {
+  Monday: '一', Tuesday: '二', Wednesday: '三',
+  Thursday: '四', Friday: '五', Saturday: '六', Sunday: '日'
+};
+
+export default function TimetableScreen() {
+  const theme = useTheme();
+  const { courses, isHydrated, semesterStartDate } = useTimetable();
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [weekInput, setWeekInput] = useState('1');
+  const [selectedCourse, setSelectedCourse] = useState<ScheduledCourse | null>(null);
+  const [periodTimes, setPeriodTimes] = useState<Record<number, string>>(() => createDefaultPeriodTimes());
+  const [periodDurations, setPeriodDurations] = useState<Record<number, number>>(() => createDefaultPeriodDurations());
+  const [periodStorageLoaded, setPeriodStorageLoaded] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
+  const [periodTimeInput, setPeriodTimeInput] = useState('');
+  const [periodDurationInput, setPeriodDurationInput] = useState('45');
+
+  // Auto-detect current week based on semester start date
+  useEffect(() => {
+    if (!semesterStartDate) return;
+    const start = parseLocalDate(semesterStartDate);
+    if (!start) return;
+    const today = startOfLocalDay(new Date());
+    const elapsedDays = Math.floor((today.getTime() - start.getTime()) / 86400000);
+    const currentWeek = Math.min(Math.max(Math.floor(elapsedDays / 7) + 1, 1), SEMESTER_WEEKS);
+    startTransition(() => {
+      setSelectedWeek(currentWeek);
+      setWeekInput(String(currentWeek));
+    });
+  }, [semesterStartDate]);
+
+  // Load persisted period times and durations
+  useEffect(() => {
+    void (async () => {
+      try {
+        const saved = await getStoredValue(PERIOD_TIMES_KEY);
+        if (saved) setPeriodTimes({ ...createDefaultPeriodTimes(), ...JSON.parse(saved) });
+        const savedDurations = await getStoredValue(PERIOD_DURATIONS_KEY);
+        if (savedDurations) setPeriodDurations({ ...createDefaultPeriodDurations(), ...JSON.parse(savedDurations) });
+      } catch {
+        // Keep calculated defaults on parse failure
+      } finally {
+        setPeriodStorageLoaded(true);
+      }
+    })();
+  }, []);
+
+  // Persist period times
+  useEffect(() => {
+    if (periodStorageLoaded) void setStoredValue(PERIOD_TIMES_KEY, JSON.stringify(periodTimes));
+  }, [periodTimes, periodStorageLoaded]);
+
+  // Persist period durations
+  useEffect(() => {
+    if (periodStorageLoaded) void setStoredValue(PERIOD_DURATIONS_KEY, JSON.stringify(periodDurations));
+  }, [periodDurations, periodStorageLoaded]);
+
+  const selectedCourses = useMemo(() => coursesForWeek(courses, selectedWeek), [courses, selectedWeek]);
+  const timetable = useMemo(() => coursesToTimetable(selectedCourses), [selectedCourses]);
+
+  const handleCoursePress = (course: ScheduledCourse) => {
+    setSelectedCourse(course);
+  };
+
+  const selectWeek = (week: number) => {
+    const nextWeek = Math.min(Math.max(week, 1), SEMESTER_WEEKS);
+    setSelectedWeek(nextWeek);
+    setWeekInput(String(nextWeek));
+  };
+
+  const commitWeekInput = () => {
+    const parsedWeek = Number.parseInt(weekInput, 10);
+    selectWeek(Number.isNaN(parsedWeek) ? selectedWeek : parsedWeek);
+  };
+
+  const openPeriodEditor = (period: number) => {
+    setSelectedPeriod(period);
+    setPeriodTimeInput(periodTimes[period]);
+    setPeriodDurationInput(String(periodDurations[period]));
+  };
+
+  const savePeriodTime = () => {
+    const duration = Number.parseInt(periodDurationInput, 10);
+    if (selectedPeriod === null || !/^([01]\d|2[0-3]):[0-5]\d$/.test(periodTimeInput) || !Number.isInteger(duration) || duration < 1 || duration > 240) return;
+    setPeriodTimes(current => ({ ...current, [selectedPeriod]: periodTimeInput }));
+    setPeriodDurations(current => ({ ...current, [selectedPeriod]: duration }));
+    setSelectedPeriod(null);
+  };
+
+  const renderCourseCard = (course: ScheduledCourse, duration: number) => (
+    <Pressable
+      key={course.id}
+      onPress={() => handleCoursePress(course)}
+      style={[
+        styles.card,
+        { height: Math.max(duration * SLOT_BASE_HEIGHT - GAP * 2, 58) },
+        { backgroundColor: theme.backgroundElement },
+        { borderColor: theme.textSecondary + '33' },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${course.name}，${course.location.building} ${course.location.room}`}
+    >
+      <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5} ellipsizeMode="clip">{course.name}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4} ellipsizeMode="clip">
+        {[course.location.building, course.location.room].filter(v => v && v !== '未填写').join(' ') || '未填写'}
+      </ThemedText>
+    </Pressable>
+  );
+
+  // Build positioned courses per day for absolute layout
+  const positionedCourses = useMemo(() => {
+    const result: Record<string, { top: number; height: number; course: ScheduledCourse }[]> = {};
+    WEEK_DAYS.forEach(day => {
+      const dayCourses = timetable[day];
+      const positioned = dayCourses.map(course => {
+        const meta = TIME_SLOT_META[course.timeSlot];
+        const duration = course.duration ?? meta.duration;
+        const top = (meta.start - 1) * SLOT_BASE_HEIGHT + GAP;
+        const height = duration * SLOT_BASE_HEIGHT - GAP * 2;
+        return { top, height: Math.max(height, 56), course };
+      });
+      result[day] = positioned;
+    });
+    return result;
+  }, [timetable]);
+
+  if (!isHydrated) return <ThemedView style={styles.center}><ThemedText>正在读取课表...</ThemedText></ThemedView>;
+
+  // Calculate month for top-left display
+  const monthStr = semesterStartDate ? formatMonth(semesterStartDate, selectedWeek) : '';
+
+  return (
+    <ThemedView style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView style={styles.safe} edges={['right', 'left', 'bottom']}>
+        {/* Compact header: week info + week selector */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <ThemedText themeColor="textSecondary" style={styles.summaryText}>
+              {courses.length ? `${selectedCourses.length} 门课程 · 第 ${selectedWeek} 周` : '还没有导入课程'}
+            </ThemedText>
+          </View>
+          <View style={styles.weekControls}>
+            <Pressable
+              onPress={() => selectWeek(selectedWeek - 1)}
+              disabled={selectedWeek === 1}
+              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === 1 && styles.disabledBtn]}
+              accessibilityRole="button"
+              accessibilityLabel="上一周"
+            >
+              <ThemedText style={{ color: theme.text }}>‹</ThemedText>
+            </Pressable>
+            <TextInput
+              value={weekInput}
+              onChangeText={value => setWeekInput(value.replace(/[^0-9]/g, ''))}
+              onBlur={commitWeekInput}
+              onSubmitEditing={commitWeekInput}
+              keyboardType="number-pad"
+              maxLength={2}
+              style={[styles.weekInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.backgroundElement }]}
+              accessibilityLabel="当前周次"
+            />
+            <ThemedText type="small" themeColor="textSecondary" style={styles.weekTotal}>/ {SEMESTER_WEEKS}</ThemedText>
+            <Pressable
+              onPress={() => selectWeek(selectedWeek + 1)}
+              disabled={selectedWeek === SEMESTER_WEEKS}
+              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === SEMESTER_WEEKS && styles.disabledBtn]}
+              accessibilityRole="button"
+              accessibilityLabel="下一周"
+            >
+              <ThemedText style={{ color: theme.text }}>›</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+
+        {!courses.length ? (
+          <ThemedView type="backgroundElement" style={styles.empty}>
+            <ThemedText type="subtitle">从真实课表开始</ThemedText>
+            <ThemedText themeColor="textSecondary">打开“导入课表”，选择 .docx 或 .xlsx 文件。</ThemedText>
+          </ThemedView>
+        ) : (
+          <ScrollView style={styles.scrollVertical} contentContainerStyle={styles.scrollVerticalContent} showsVerticalScrollIndicator>
+            <ScrollView horizontal style={styles.scrollHorizontal} contentContainerStyle={styles.scrollContent} showsHorizontalScrollIndicator={false}>
+              <View style={styles.grid}>
+                {/* Time column header with month at top-left */}
+                <View style={styles.timeHeader}>
+                  <View style={[styles.timeHead, { backgroundColor: theme.backgroundElement, borderBottomColor: theme.textSecondary + '33' }]}>
+                    {monthStr && <ThemedText type="small" style={styles.monthLabel}>{monthStr}</ThemedText>}
+                  </View>
+                  {WEEK_DAYS.map(day => (
+                    <View key={day} style={[styles.dayHead, { backgroundColor: theme.backgroundElement, borderBottomColor: theme.textSecondary + '33' }]}>
+                      <ThemedText type="smallBold" style={styles.dayLabel}>{SHORT_DAY_LABELS[day]}</ThemedText>
+                      {semesterStartDate && <ThemedText type="small" themeColor="textSecondary" style={styles.dateLabel}>{formatDayDate(semesterStartDate, selectedWeek, day)}</ThemedText>}
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.gridBody}>
+                  {/* Time slots column - compact period numbers with times */}
+                  <View style={[styles.timeColumn, { borderRightColor: theme.textSecondary + '33', backgroundColor: theme.backgroundElement }]}>
+                    {CLASS_PERIODS.map(period => (
+                      <View key={period} style={[styles.periodRow, { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + '22' }]}>
+                        <Pressable style={styles.timeCell} onPress={() => openPeriodEditor(period)} accessibilityRole="button" accessibilityLabel={`修改第${period}节上课时间`}>
+                          <ThemedText type="smallBold" style={styles.periodNumber}>{period}</ThemedText>
+                          <ThemedText type="small" themeColor="textSecondary" style={styles.periodTime}>{formatPeriodRange(periodTimes[period], periodDurations[period])}</ThemedText>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Day columns with absolutely positioned course cards */}
+                  {WEEK_DAYS.map(day => (
+                    <View key={day} style={[styles.dayColumn, { borderRightColor: theme.textSecondary + '22' }]}>
+                      {/* Grid lines */}
+                      {CLASS_PERIODS.map(period => (
+                        <View key={period} style={[styles.gridLine, { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + '15', backgroundColor: theme.background }]} />
+                      ))}
+                      {/* Courses */}
+                      {positionedCourses[day].map(({ top, height, course }) => (
+                        <View
+                          key={course.id}
+                          style={[
+                            styles.positionedCard,
+                            { top, height },
+                          ]}
+                        >
+                          {renderCourseCard(course, course.duration ?? TIME_SLOT_META[course.timeSlot].duration)}
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+          </ScrollView>
+        )}
+
+      </SafeAreaView>
+
+      {selectedCourse && (
+        <CourseDetailModal course={selectedCourse} periodTimes={periodTimes} periodDurations={periodDurations} onClose={() => setSelectedCourse(null)} />
+      )}
+      {selectedPeriod !== null && (
+        <PeriodTimeModal
+          period={selectedPeriod}
+          value={periodTimeInput}
+          duration={periodDurationInput}
+          onChange={setPeriodTimeInput}
+          onDurationChange={setPeriodDurationInput}
+          onSave={savePeriodTime}
+          onClose={() => setSelectedPeriod(null)}
+        />
+      )}
+    </ThemedView>
+  );
+}
+
+function CourseDetailModal({ course, periodTimes, periodDurations, onClose }: { course: ScheduledCourse; periodTimes: Record<number, string>; periodDurations: Record<number, number>; onClose: () => void }) {
+  const theme = useTheme();
+  const meta = TIME_SLOT_META[course.timeSlot];
+  return (
+    <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} onStartShouldSetResponder={() => true} onResponderGrant={onClose}>
+      <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalHeader}>
+          <ThemedText type="title" style={styles.modalTitle}>{course.name}</ThemedText>
+          <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
+            <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
+          </Pressable>
+        </View>
+        <View style={styles.modalBody}>
+          <DetailRow label="课程代码" value={course.code} />
+          <DetailRow label="上课时间" value={`${WEEK_DAY_LABELS[course.day]} ${formatPeriodTimeRange(meta.start, meta.end, periodTimes, periodDurations)}`} />
+          <DetailRow label="上课地点" value={`${course.location.campus} ${course.location.building} ${course.location.room}`} />
+          <DetailRow label="教师" value={`${course.teacher.name}${course.teacher.title ? ` · ${course.teacher.title}` : ''}`} />
+          <DetailRow label="开课班级" value={course.classes.map(formatClassLabel).join('；')} />
+          <DetailRow label="周次模式" value={course.weekPattern === 'full' ? '全周' : `指定周: ${course.specificWeeks?.join(', ')}`} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function PeriodTimeModal({ period, value, duration, onChange, onDurationChange, onSave, onClose }: { period: number; value: string; duration: string; onChange: (value: string) => void; onDurationChange: (value: string) => void; onSave: () => void; onClose: () => void }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} onStartShouldSetResponder={() => true} onResponderGrant={onClose}>
+      <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]} onStartShouldSetResponder={() => true}>
+        <ThemedText type="subtitle" style={styles.periodModalTitle}>第{period}节上课时间</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">请输入 24 小时制时间，例如 08:00。</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>开始时间</ThemedText>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          placeholder="08:00"
+          placeholderTextColor={theme.textSecondary}
+          keyboardType="numbers-and-punctuation"
+          style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
+          accessibilityLabel={`第${period}节上课时间`}
+          autoFocus
+        />
+        <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>课程时长（分钟）</ThemedText>
+        <TextInput
+          value={duration}
+          onChangeText={onDurationChange}
+          placeholder="45"
+          placeholderTextColor={theme.textSecondary}
+          keyboardType="number-pad"
+          style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
+          accessibilityLabel={`第${period}节课程时长`}
+        />
+        <View style={styles.periodModalActions}>
+          <Pressable onPress={onClose} style={styles.modalActionButton}><ThemedText themeColor="textSecondary">取消</ThemedText></Pressable>
+          <Pressable onPress={onSave} style={[styles.modalActionButton, { backgroundColor: theme.backgroundSelected }]}><ThemedText style={{ color: theme.text }}>保存</ThemedText></Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function formatClassLabel(classInfo: ScheduledCourse['classes'][number]): string {
+  const grade = classInfo.grade.trim();
+  const major = classInfo.major.trim();
+  if (!major || major === grade) return grade;
+  const normalizedMajor = major.startsWith(grade) ? major.slice(grade.length).trim() : major;
+  return normalizedMajor ? `${grade} ${normalizedMajor}` : grade;
+}
+
+function createDefaultPeriodTimes(): Record<number, string> {
+  return CLASS_PERIODS.reduce<Record<number, string>>((times, period) => {
+    const totalMinutes = 8 * 60 + (period - 1) * (45 + 5);
+    times[period] = formatMinutes(totalMinutes);
+    return times;
+  }, {});
+}
+
+function createDefaultPeriodDurations(): Record<number, number> {
+  return CLASS_PERIODS.reduce<Record<number, number>>((durations, period) => {
+    durations[period] = 45;
+    return durations;
+  }, {});
+}
+
+function formatMinutes(totalMinutes: number): string {
+  const hours = Math.floor(totalMinutes / 60) % 24;
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatPeriodRange(startTime: string, duration: number): string {
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const endTime = formatMinutes(hours * 60 + minutes + duration);
+  return `${startTime}\n${endTime}`;
+}
+
+function formatPeriodTimeRange(start: number, end: number, periodTimes: Record<number, string>, periodDurations: Record<number, number>): string {
+  const startTime = periodTimes[start];
+  const lessonCount = end - start + 1;
+  const duration = Array.from({ length: lessonCount }, (_, index) => periodDurations[start + index] ?? 45).reduce((total, minutes) => total + minutes, 0) + (lessonCount - 1) * 5;
+  return `(第${start}-${end}节 ${formatPeriodRange(startTime, duration)})`;
+}
+
+function parseLocalDate(value: string): Date | null {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) || date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3]) ? null : startOfLocalDay(date);
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDayDate(startDate: string, week: number, day: typeof WEEK_DAYS[number]): string {
+  const start = parseLocalDate(startDate);
+  if (!start) return '';
+  const dayIndex = WEEK_DAYS.indexOf(day);
+  const date = new Date(start);
+  date.setDate(start.getDate() + (week - 1) * 7 + dayIndex);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatMonth(startDate: string, week: number): string {
+  const start = parseLocalDate(startDate);
+  if (!start) return '';
+  const date = new Date(start);
+  date.setDate(start.getDate() + (week - 1) * 7);
+  return `${date.getMonth() + 1}月`;
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.detailLabel}>{label}</ThemedText>
+      <ThemedText type="small" style={styles.detailValue}>{value}</ThemedText>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center', paddingHorizontal: 0, paddingBottom: 4, paddingTop: 0 },
+
+  // Compact header: week info + week selector
+  header: {
+    paddingVertical: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  headerLeft: { flex: 1 },
+  summaryText: { fontSize: 12, lineHeight: 16, opacity: 0.85 },
+
+  weekControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
+  weekNavBtn: {
+    width: 22, height: 22,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  disabledBtn: { opacity: 0.4 },
+  weekInput: {
+    width: 28, height: 22,
+    borderWidth: 1,
+    borderRadius: 4,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    fontSize: 11,
+    lineHeight: 18,
+    includeFontPadding: false,
+  },
+  weekTotal: { fontSize: 10, marginLeft: 0 },
+
+  empty: { padding: Spacing.four, gap: Spacing.two, alignItems: 'center' },
+  scrollVertical: { flex: 1 },
+  scrollVerticalContent: { flexGrow: 1 },
+  scrollHorizontal: { flex: 1 },
+  scrollContent: { paddingBottom: Spacing.four },
+
+  // Grid layout
+  grid: {
+    width: TIME_COL_WIDTH + DAY_WIDTH * 7,
+    position: 'relative',
+  },
+  timeHeader: { flexDirection: 'row', zIndex: 10 },
+  gridBody: { flexDirection: 'row' },
+
+  // Time column header (top-left corner with month)
+  timeHead: {
+    width: TIME_COL_WIDTH,
+    height: 48,
+    borderBottomWidth: 0.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  monthLabel: { fontSize: 10, fontWeight: '600', opacity: 0.7 },
+
+  // Day headers - compact
+  dayHead: {
+    width: DAY_WIDTH,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 0.5,
+    paddingHorizontal: 1,
+  },
+  dayLabel: { fontSize: 13, fontWeight: '700' },
+  dateLabel: { fontSize: 9, marginTop: 0, opacity: 0.7 },
+
+  // Time column - compact
+  timeColumn: {
+    width: TIME_COL_WIDTH,
+    borderRightWidth: 0.5,
+  },
+  periodRow: { borderBottomWidth: 0.5 },
+  timeCell: {
+    width: TIME_COL_WIDTH,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 1,
+    paddingVertical: 3,
+  },
+  periodNumber: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
+  periodTime: { fontSize: 8, textAlign: 'center', lineHeight: 11, marginTop: 0 },
+
+  // Day columns
+  dayColumn: {
+    width: DAY_WIDTH,
+    position: 'relative',
+    borderRightWidth: 0.5,
+  },
+  gridLine: { borderBottomWidth: 0.5 },
+  positionedCard: {
+    position: 'absolute',
+    left: GAP,
+    right: GAP,
+    zIndex: 5,
+  },
+
+  // Course cards - taller, more readable
+  card: {
+    borderRadius: 5,
+    padding: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    width: '100%',
+    height: '100%',
+    overflow: 'visible',
+  },
+  courseName: { fontSize: 10, lineHeight: 13, fontWeight: '700', flexShrink: 1 },
+  courseLocation: { fontSize: 9, lineHeight: 12, marginTop: 0, flexShrink: 1 },
+  fileName: { marginTop: Spacing.one, textAlign: 'center', fontSize: 10 },
+
+  // Modals
+  modalOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.three,
+    zIndex: 100,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 16,
+    padding: Spacing.four,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.three },
+  periodModalTitle: { fontSize: 18, marginBottom: Spacing.two },
+  periodFieldLabel: { marginTop: Spacing.three },
+  periodInput: { height: 42, borderWidth: 1, borderRadius: 6, paddingHorizontal: Spacing.two, marginTop: Spacing.three, fontSize: 16 },
+  periodModalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: Spacing.two, marginTop: Spacing.four },
+  modalActionButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: 6 },
+  modalTitle: { fontSize: 18, maxWidth: '80%' },
+  closeBtn: { padding: 4 },
+  modalBody: { gap: Spacing.two },
+  detailRow: { flexDirection: 'row', gap: Spacing.two },
+  detailLabel: { minWidth: 64, flexShrink: 0 },
+  detailValue: { flex: 1, flexWrap: 'wrap' },
+});
