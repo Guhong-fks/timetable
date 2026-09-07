@@ -1,6 +1,6 @@
 # 课程表应用
 
-当前版本面向 Web，支持导入固定模板的 `.docx` 和 `.xlsx` 课表，并按周次查看课程。
+当前版本面向 Web，支持导入固定模板的 `.docx` 课表，并按周次查看课程。
 
 ## 当前格式
 
@@ -20,7 +20,7 @@ npm run web
 
 ## 手机运行
 
-手机端已经支持通过 Expo Document Picker 选择 `.docx` 和 `.xlsx` 文件，数据和设置会保存在手机本地。
+手机端已经支持通过 Expo Document Picker 选择 `.docx` 文件，数据和设置会保存在手机本地。
 
 Windows PowerShell 如果提示禁止运行 `npm.ps1` 或 `npx.ps1`，请使用 `.cmd` 入口：
 
@@ -71,7 +71,7 @@ You can start developing by editing the files inside the **app** directory. This
 
 ## 功能
 
-- 导入固定格式的 `.docx` 和 `.xlsx` 课表
+- 导入固定格式的 `.docx` 课表
 - 支持 Word 合并单元格和同一单元格中的多门课程
 - 按 18 周查看课程，并自动计算当前周次
 - 显示周一至周日、具体日期、节次时间、地点和教师信息
@@ -86,14 +86,12 @@ You can start developing by editing the files inside the **app** directory. This
 - 第一列是节次，后七列依次是周一至周日
 - 课程内容需要包含课程代码、周次和节次
 - Word 文件支持 `rowspan` 合并单元格
-- Excel 使用第一个工作表
 
 ## 环境要求
 
 - Node.js 20 或更高版本
 - npm
 - Android 开发需要 Android Studio 或 Android 真机
-- iOS 开发需要 macOS 和 Xcode
 
 ## 安装与运行
 
@@ -169,7 +167,7 @@ eas.json                EAS 构建配置
 
 ## 安全说明
 
-课表文件只在本地解析，不会主动上传到服务器。请不要导入来源不明的文件。当前 Excel 解析依赖的 `xlsx` 版本存在已知安全公告，后续应优先升级或替换解析方案；同时建议只导入可信且规模合理的课表文件。
+课表文件只在本地解析，不会主动上传到服务器。请不要导入来源不明的文件。仅支持 `.docx` 格式（已移除 `.xlsx` 以规避 `xlsx` 库已知的原型污染漏洞），建议只导入可信且规模合理的课表文件。
 
 ## 许可证
 

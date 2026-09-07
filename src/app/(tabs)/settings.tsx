@@ -65,7 +65,7 @@ export default function SettingsScreen() {
 
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">关于</ThemedText>
-            <ThemedText themeColor="textSecondary">课程表 v1.0.0</ThemedText>
+            <ThemedText themeColor="textSecondary">课程表 v1.0.3</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
               基于 Expo + React Native 构建
             </ThemedText>

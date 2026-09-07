@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '@/state/theme-context';
 
 export default function TabLayout() {
@@ -22,7 +22,7 @@ export default function TabLayout() {
         options={{
           title: '课表',
           tabBarIcon: ({ color, size }) => (
-            <SymbolView name={{ ios: 'tablecells', android: 'table_view', web: 'table_view' }} tintColor={color} size={24} weight="semibold" />
+            <Ionicons name="grid-outline" color={color} size={size} />
           ),
         }}
       />
@@ -31,7 +31,7 @@ export default function TabLayout() {
         options={{
           title: '导入',
           tabBarIcon: ({ color, size }) => (
-            <SymbolView name={{ ios: 'doc.badge.plus', android: 'file_upload', web: 'file_upload' }} tintColor={color} size={24} weight="semibold" />
+            <Ionicons name="document-text-outline" color={color} size={size} />
           ),
         }}
       />
@@ -40,7 +40,7 @@ export default function TabLayout() {
         options={{
           title: '设置',
           tabBarIcon: ({ color, size }) => (
-            <SymbolView name={{ ios: 'gearshape', android: 'settings', web: 'settings' }} tintColor={color} size={24} weight="semibold" />
+            <Ionicons name="settings-outline" color={color} size={size} />
           ),
         }}
       />

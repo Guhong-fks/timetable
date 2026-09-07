@@ -18,7 +18,7 @@ export default function ImportScreen() {
   const [lastImportTime, setLastImportTime] = useState(0);
   const IMPORT_COOLDOWN_MS = 3000;
 
-  async function choose(file?: { name: string; size?: number; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; uri: string }) {
+  async function choose(file?: { name: string; size?: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; size?: number; type?: string; uri: string }) {
     if (!file) return;
     const now = Date.now();
     if (now - lastImportTime < IMPORT_COOLDOWN_MS && !loading) {
@@ -49,7 +49,9 @@ export default function ImportScreen() {
     });
     if (!result.canceled) {
       const file = result.assets[0];
-      await choose({ name: file.name, uri: file.uri });
+      // DocumentPicker exposes file size under `.size` on most platforms; pass
+      // it through so the size check in `validateFile` actually runs.
+      await choose({ name: file.name, size: file.size, type: file.mimeType, uri: file.uri });
     }
   }
 
@@ -69,17 +71,17 @@ export default function ImportScreen() {
 
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
-                        <ThemedText themeColor="textSecondary" style={styles.hint}>
-                          设置第一周周一的日期，用于在课表中显示具体上课日期
-                        </ThemedText>
-                        <TextInput
-                          value={startDateInput}
-                          onChangeText={handleDateChange}
-                          placeholder="YYYY-MM-DD (例如 2025-02-17)"
-                          placeholderTextColor="#999"
-                          keyboardType="numeric"
-                          style={styles.dateInput}
-                        />
+            <ThemedText themeColor="textSecondary" style={styles.hint}>
+              设置第一周周一的日期，用于在课表中显示具体上课日期
+            </ThemedText>
+            <TextInput
+              value={startDateInput}
+              onChangeText={handleDateChange}
+              placeholder="YYYY-MM-DD (例如 2025-02-17)"
+              placeholderTextColor="#999"
+              keyboardType="numeric"
+              style={styles.dateInput}
+            />
             {semesterStartDate && (
               <ThemedText themeColor="textSecondary" style={styles.currentDate}>
                 当前设置：{semesterStartDate} (第1周周一)
@@ -103,7 +105,7 @@ export default function ImportScreen() {
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) void choose({ name: file.name, size: file.size, arrayBuffer: () => file.arrayBuffer() });
+                if (file) void choose({ name: file.name, size: file.size, type: file.type, arrayBuffer: () => file.arrayBuffer() });
               }}
             />
           )}

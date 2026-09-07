@@ -1,5 +1,5 @@
 import { startTransition, useState, useMemo, useEffect, useCallback } from 'react';
-import { AppState, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
+import { AppState, Modal, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -7,7 +7,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTimetable } from '@/state/timetable-context';
 import { useTheme } from '@/hooks/use-theme';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
-import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, TIME_SLOT_META, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
+import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
 
 // Compact layout constants for mobile timetable
 const DAY_WIDTH = 52;
@@ -130,13 +130,13 @@ export default function TimetableScreen() {
           { borderColor: theme.textSecondary + '33' },
         ]}
         accessibilityRole="button"
-        accessibilityLabel={`${course.name}，${course.location.building} ${course.location.room}`}
+        accessibilityLabel={`${course.name}，${course.location.address}`}
       >
         <ThemedView type="backgroundElement" style={styles.cardContent}>
           <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5}>{course.name}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4}>
-            {[course.location.building, course.location.room].filter(v => v && v !== '未填写').join(' ') || '未填写'}
-          </ThemedText>
+                      {course.location.address || '未填写'}
+                    </ThemedText>
         </ThemedView>
       </Pressable>
     );
@@ -146,13 +146,20 @@ export default function TimetableScreen() {
     const result: Record<string, { top: number; height: number; course: ScheduledCourse }[]> = {};
     WEEK_DAYS.forEach(day => {
       const dayCourses = timetable[day];
-      const positioned = dayCourses.map(course => {
-        const meta = TIME_SLOT_META[course.timeSlot];
-        const duration = course.duration ?? meta.duration;
-        const top = (meta.start - 1) * SLOT_BASE_HEIGHT + GAP;
-        const height = duration * SLOT_BASE_HEIGHT - GAP * 2;
-        return { top, height: Math.max(height, 56), course };
-      });
+      const positioned = dayCourses
+              .map(course => {
+                const meta = getTimeSlotMeta(course.timeSlot);
+                if (!meta) return null;
+                // Use the authoritative startPeriod / duration written by
+                // the importer so non-standard spans (e.g. `5-7节`) render at
+                // the right row and don't overlap adjacent courses.
+                const startPeriod = course.startPeriod ?? meta.start;
+                const duration = course.duration ?? meta.duration;
+                const top = (startPeriod - 1) * SLOT_BASE_HEIGHT + GAP;
+                const height = duration * SLOT_BASE_HEIGHT - GAP * 2;
+                return { top, height: Math.max(height, 56), course };
+              })
+              .filter((v): v is { top: number; height: number; course: ScheduledCourse } => v !== null);
       result[day] = positioned;
     });
     return result;
@@ -208,9 +215,9 @@ export default function TimetableScreen() {
 
         {!courses.length ? (
           <ThemedView type="backgroundElement" style={styles.empty}>
-            <ThemedText type="subtitle">从真实课表开始</ThemedText>
-            <ThemedText themeColor="textSecondary">打开“导入课表”，选择 .docx 或 .xlsx 文件。</ThemedText>
-          </ThemedView>
+                      <ThemedText type="subtitle">从真实课表开始</ThemedText>
+                      <ThemedText themeColor="textSecondary">打开“导入课表”，选择 .docx 文件。</ThemedText>
+                    </ThemedView>
         ) : (
           <ScrollView style={styles.scrollVertical} contentContainerStyle={styles.scrollVerticalContent} showsVerticalScrollIndicator>
             <ScrollView horizontal style={styles.scrollHorizontal} contentContainerStyle={styles.scrollContent} showsHorizontalScrollIndicator={false}>
@@ -257,7 +264,7 @@ export default function TimetableScreen() {
                             { top, height },
                           ]}
                         >
-                          {renderCourseCard(course, course.duration ?? TIME_SLOT_META[course.timeSlot].duration)}
+                          {renderCourseCard(course, course.duration ?? (getTimeSlotMeta(course.timeSlot)?.duration ?? 1))}
                         </View>
                       ))}
                     </View>
@@ -290,72 +297,71 @@ export default function TimetableScreen() {
 
 function CourseDetailModal({ course, periodTimes, periodDurations, onClose }: { course: ScheduledCourse; periodTimes: Record<number, string>; periodDurations: Record<number, number>; onClose: () => void }) {
   const theme = useTheme();
-  const meta = TIME_SLOT_META[course.timeSlot];
+  const meta = getTimeSlotMeta(course.timeSlot);
+  if (!meta) return null;
+  // Prefer the authoritative start/end written by the importer so the modal
+  // shows the real period range (e.g. `5-7节`), not the coarse slot meta.
+  const startPeriod = course.startPeriod ?? meta.start;
+  const endPeriod = course.endPeriod ?? meta.end;
   return (
-    <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} onStartShouldSetResponder={() => true} onResponderGrant={onClose}>
-      <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]} onStartShouldSetResponder={() => true}>
-        <View style={styles.modalHeader}>
-          <ThemedText type="title" style={styles.modalTitle}>{course.name}</ThemedText>
-          <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
-            <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
-          </Pressable>
-        </View>
-        <View style={styles.modalBody}>
-          <DetailRow label="课程代码" value={course.code} />
-          <DetailRow label="上课时间" value={`${WEEK_DAY_LABELS[course.day]} ${formatPeriodTimeRange(meta.start, meta.end, periodTimes, periodDurations)}`} />
-          <DetailRow label="上课地点" value={`${course.location.campus} ${course.location.building} ${course.location.room}`} />
-          <DetailRow label="教师" value={`${course.teacher.name}${course.teacher.title ? ` · ${course.teacher.title}` : ''}`} />
-          <DetailRow label="开课班级" value={course.classes.map(formatClassLabel).join('；')} />
-          <DetailRow label="周次模式" value={course.weekPattern === 'full' ? '全周' : `指定周: ${course.specificWeeks?.join(', ')}`} />
+    <Modal visible={true} onRequestClose={onClose} animationType="fade" transparent={true}>
+      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+        <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]}>
+          <View style={styles.modalHeader}>
+            <ThemedText type="title" style={styles.modalTitle}>{course.name}</ThemedText>
+            <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
+              <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
+            </Pressable>
+          </View>
+          <View style={styles.modalBody}>
+                      <DetailRow label="上课时间" value={`${WEEK_DAY_LABELS[course.day]} ${formatPeriodTimeRange(startPeriod, endPeriod, periodTimes, periodDurations)}`} />
+                      <DetailRow label="上课地点" value={course.location.address} />
+                      <DetailRow label="教师" value={`${course.teacher.name}${course.teacher.title ? ` · ${course.teacher.title}` : ''}`} />
+                      <DetailRow label="周次模式" value={course.weekPattern === 'full' ? '全周' : `指定周: ${course.specificWeeks?.join(', ')}`} />
+                    </View>
         </View>
       </View>
-    </View>
+    </Modal>
   );
 }
 
 function PeriodTimeModal({ period, value, duration, onChange, onDurationChange, onSave, onClose }: { period: number; value: string; duration: string; onChange: (value: string) => void; onDurationChange: (value: string) => void; onSave: () => void; onClose: () => void }) {
   const theme = useTheme();
   return (
-    <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} onStartShouldSetResponder={() => true} onResponderGrant={onClose}>
-      <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]} onStartShouldSetResponder={() => true}>
-        <ThemedText type="subtitle" style={styles.periodModalTitle}>第{period}节上课时间</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">请输入 24 小时制时间，例如 08:00。</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>开始时间</ThemedText>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          placeholder="08:00"
-          placeholderTextColor={theme.textSecondary}
-          keyboardType="numbers-and-punctuation"
-          style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
-          accessibilityLabel={`第${period}节上课时间`}
-          autoFocus
-        />
-        <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>课程时长（分钟）</ThemedText>
-        <TextInput
-          value={duration}
-          onChangeText={onDurationChange}
-          placeholder="45"
-          placeholderTextColor={theme.textSecondary}
-          keyboardType="number-pad"
-          style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
-          accessibilityLabel={`第${period}节课程时长`}
-        />
-        <View style={styles.periodModalActions}>
-          <Pressable onPress={onClose} style={styles.modalActionButton}><ThemedText themeColor="textSecondary">取消</ThemedText></Pressable>
-          <Pressable onPress={onSave} style={[styles.modalActionButton, { backgroundColor: theme.backgroundSelected }]}><ThemedText style={{ color: theme.text }}>保存</ThemedText></Pressable>
+    <Modal visible={true} onRequestClose={onClose} animationType="fade" transparent={true}>
+      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+        <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]}>
+          <ThemedText type="subtitle" style={styles.periodModalTitle}>第{period}节上课时间</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">请输入 24 小时制时间，例如 08:00。</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>开始时间</ThemedText>
+          <TextInput
+            value={value}
+            onChangeText={onChange}
+            placeholder="08:00"
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="numbers-and-punctuation"
+            style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
+            accessibilityLabel={`第${period}节上课时间`}
+            autoFocus
+          />
+          <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>课程时长（分钟）</ThemedText>
+          <TextInput
+            value={duration}
+            onChangeText={onDurationChange}
+            placeholder="45"
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="number-pad"
+            style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
+            accessibilityLabel={`第${period}节课程时长`}
+          />
+          <View style={styles.periodModalActions}>
+            <Pressable onPress={onClose} style={styles.modalActionButton}><ThemedText themeColor="textSecondary">取消</ThemedText></Pressable>
+            <Pressable onPress={onSave} style={[styles.modalActionButton, { backgroundColor: theme.backgroundSelected }]}><ThemedText style={{ color: theme.text }}>保存</ThemedText></Pressable>
+          </View>
         </View>
       </View>
-    </View>
+    </Modal>
   );
-}
-
-function formatClassLabel(classInfo: ScheduledCourse['classes'][number]): string {
-  const grade = classInfo.grade.trim();
-  const major = classInfo.major.trim();
-  if (!major || major === grade) return grade;
-  const normalizedMajor = major.startsWith(grade) ? major.slice(grade.length).trim() : major;
-  return normalizedMajor ? `${grade} ${normalizedMajor}` : grade;
 }
 
 function createDefaultPeriodTimes(maxPeriods: number = DEFAULT_MAX_PERIODS): Record<number, string> {

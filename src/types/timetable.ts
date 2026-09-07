@@ -1,28 +1,38 @@
 export enum WeekDay { MONDAY='Monday', TUESDAY='Tuesday', WEDNESDAY='Wednesday', THURSDAY='Thursday', FRIDAY='Friday', SATURDAY='Saturday', SUNDAY='Sunday' }
-export enum TimeSlot { ONE_TWO='1-2', THREE_FOUR='3-4', FIVE_SIX='5-6', SIX_SEVEN='6-7', EIGHT='8', NINE='9', TEN='10', ELEVEN='11-13', EVENING='evening' }
+export enum TimeSlot { ONE_TWO='1-2', THREE_FOUR='3-4', FIVE_SIX='5-6', SEVEN_EIGHT='7-8', EIGHT='8', NINE='9', TEN='10', ELEVEN='11', TWELVE='12', THIRTEEN='13' }
+
+// Backward-compat alias for data persisted before 11/12/13 were split.
+// Old '11-13' entries are read-only and coerced to ELEVEN on hydrate.
+export const LEGACY_TIME_SLOT_KEYS = ['11-13'] as const;
+export type LegacyTimeSlotKey = typeof LEGACY_TIME_SLOT_KEYS[number];
+export const LEGACY_TIME_SLOT_META: Record<LegacyTimeSlotKey, {label: string; start: number; end: number; duration: number}> = {
+  '11-13': {label: '11-13 节', start: 11, end: 13, duration: 3},
+};
 
 export const TIME_SLOT_ORDER: TimeSlot[] = [
   TimeSlot.ONE_TWO,
   TimeSlot.THREE_FOUR,
   TimeSlot.FIVE_SIX,
-  TimeSlot.SIX_SEVEN,
+  TimeSlot.SEVEN_EIGHT,
   TimeSlot.EIGHT,
   TimeSlot.NINE,
   TimeSlot.TEN,
   TimeSlot.ELEVEN,
-  TimeSlot.EVENING,
+  TimeSlot.TWELVE,
+  TimeSlot.THIRTEEN,
 ];
 
 export const TIME_SLOT_META: Record<TimeSlot, {label: string; start: number; end: number; duration: number}> = {
   '1-2': {label: '1-2 节', start: 1, end: 2, duration: 2},
   '3-4': {label: '3-4 节', start: 3, end: 4, duration: 2},
   '5-6': {label: '5-6 节', start: 5, end: 6, duration: 2},
-  '6-7': {label: '6-7 节', start: 6, end: 7, duration: 2},
+  '7-8': {label: '7-8 节', start: 7, end: 8, duration: 2},
   '8': {label: '8 节', start: 8, end: 8, duration: 1},
   '9': {label: '9 节', start: 9, end: 9, duration: 1},
   '10': {label: '10 节', start: 10, end: 10, duration: 1},
-  '11-13': {label: '11-13 节', start: 11, end: 13, duration: 3},
-  'evening': {label: '晚上', start: 19, end: 21, duration: 2},
+  '11': {label: '11 节', start: 11, end: 11, duration: 1},
+  '12': {label: '12 节', start: 12, end: 12, duration: 1},
+  '13': {label: '13 节', start: 13, end: 13, duration: 1},
 };
 
 export const CLASS_PERIODS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
@@ -31,6 +41,76 @@ export const WEEK_DAYS = [WeekDay.MONDAY, WeekDay.TUESDAY, WeekDay.WEDNESDAY, We
 export const DEFAULT_SEMESTER_WEEKS = 18;
 export const DEFAULT_MAX_PERIODS = 13;
 export const WEEK_DAY_LABELS: Record<WeekDay, string> = { Monday: '周一', Tuesday: '周二', Wednesday: '周三', Thursday: '周四', Friday: '周五', Saturday: '周六', Sunday: '周日' };
+
+/** Strip fields removed in v3 (`code`, `classes`) and coerce legacy
+ * `location: { campus, building, room }` to `{ address }`. Drop courses
+ * whose timeSlot can no longer be resolved. Recompute `startPeriod` /
+ * `endPeriod` so renderer positioning is consistent even when the persisted
+ * `duration` no longer matches the slot meta (e.g. imported `5-7节`
+ * persisted as `FIVE_SIX` with duration=3). Returns a fresh ScheduledCourse
+ * array. */
+export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ScheduledCourse[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const c = item as Partial<ScheduledCourse> & {
+      code?: unknown;
+      classes?: unknown;
+      startPeriod?: unknown;
+      endPeriod?: unknown;
+      location?: { address?: string; campus?: string; building?: string; room?: string };
+    };
+    const meta = getTimeSlotMeta(c.timeSlot as string);
+    if (!meta) continue;
+
+    // Build the address: prefer new `address`, otherwise join legacy fields
+    // filtering out the placeholder string '未填写'.
+    let address: string;
+    if (typeof c.location?.address === 'string' && c.location.address.length) {
+      address = c.location.address;
+    } else {
+      const parts = [c.location?.campus, c.location?.building, c.location?.room]
+        .filter(v => typeof v === 'string' && v.length && v !== '未填写');
+      address = parts.join(' ').trim();
+    }
+
+    // Resolve authoritative start/end: prefer explicit fields when present,
+    // otherwise derive from `duration` + meta, otherwise fall back to meta.
+    const metaStart = meta.start;
+    const metaEnd = meta.end;
+    const storedDuration = typeof c.duration === 'number' && c.duration >= 1 && c.duration <= 20 ? c.duration : undefined;
+    const storedStart = typeof c.startPeriod === 'number' && c.startPeriod >= 1 && c.startPeriod <= 13 ? c.startPeriod : undefined;
+    const storedEnd = typeof c.endPeriod === 'number' && c.endPeriod >= 1 && c.endPeriod <= 13 ? c.endPeriod : undefined;
+    const startPeriod = storedStart ?? metaStart;
+    const endPeriod = storedEnd
+      ?? (storedDuration ? Math.min(startPeriod + storedDuration - 1, 13) : metaEnd);
+    const duration = endPeriod - startPeriod + 1;
+
+    out.push({
+      id: String(c.id ?? ''),
+      name: String(c.name ?? ''),
+      day: c.day as ScheduledCourse['day'],
+      timeSlot: c.timeSlot as ScheduledCourse['timeSlot'],
+      startPeriod,
+      endPeriod,
+      duration,
+      location: { address },
+      teacher: c.teacher as ScheduledCourse['teacher'],
+      weekPattern: c.weekPattern as ScheduledCourse['weekPattern'],
+      specificWeeks: c.specificWeeks,
+    });
+  }
+  return out;
+}
+
+/** Look up meta for a time slot key, falling back to legacy aliases.
+ * Returns null if the key is unknown. */
+export function getTimeSlotMeta(slot: string): {label: string; start: number; end: number; duration: number} | null {
+  if (slot in TIME_SLOT_META) return TIME_SLOT_META[slot as TimeSlot];
+  if (slot in LEGACY_TIME_SLOT_META) return LEGACY_TIME_SLOT_META[slot as LegacyTimeSlotKey];
+  return null;
+}
 
 /** Compute semester weeks from imported courses (max week number, fallback to default) */
 export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
@@ -43,13 +123,19 @@ export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
   return max;
 }
 
-/** Compute max periods per day from imported courses (max end period, excluding evening) */
+/** Compute max periods per day from imported courses (max end period) */
 export function computeMaxPeriods(courses: ScheduledCourse[]): number {
   let max = DEFAULT_MAX_PERIODS;
   for (const course of courses) {
-    if (course.timeSlot === TimeSlot.EVENING) continue;
-    const end = TIME_SLOT_META[course.timeSlot].end;
-    if (end > max) max = end;
+    // Prefer the authoritative endPeriod written by the importer; fall back
+    // to meta so legacy data still produces the right grid height.
+    if (typeof course.endPeriod === 'number' && course.endPeriod > max) {
+      max = course.endPeriod;
+      continue;
+    }
+    const meta = getTimeSlotMeta(course.timeSlot);
+    if (!meta) continue;
+    if (meta.end > max) max = meta.end;
   }
   return max;
 }
@@ -62,15 +148,22 @@ export function periodsArray(maxPeriods: number): number[] {
 export interface ScheduledCourse {
   id: string;
   name: string;
-  code: string;
   day: WeekDay;
   timeSlot: TimeSlot;
-  location: { campus: '磬苑校区' | '其他'; building: string; room: string };
+  /** Authoritative first period (1-based). Used by the renderer for top
+   * offset so it stays correct even when `timeSlot` is a coarse enum. */
+  startPeriod: number;
+  /** Authoritative last period (inclusive). Used for grid max-periods and
+   * modal time display so non-standard spans (e.g. `5-7节`) report the real
+   * end, not the slot meta end. */
+  endPeriod: number;
+  location: { address: string };
   teacher: { name: string; title?: string };
-  classes: { grade: string; major: string; classNumber?: string }[];
   weekPattern: 'full' | 'specific';
   specificWeeks?: number[];
-  duration?: number; // 可选：解析时覆盖的实际节数
+  /** `endPeriod - startPeriod + 1`. Kept as a convenience field for the
+   * renderer; always equals `endPeriod - startPeriod + 1`. */
+  duration: number;
 }
 export type TimetableData = { [day in WeekDay]: ScheduledCourse[] };
 export function createEmptyTimetable(): TimetableData {

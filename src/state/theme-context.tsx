@@ -23,9 +23,6 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-// 默认浅色主题，避免首屏白屏
-const DEFAULT_THEME = Colors.light; // eslint-disable-line @typescript-eslint/no-unused-vars
-
 export function ThemeProvider({ children }: PropsWithChildren) {
   const systemScheme = useColorScheme();
   const [mode, setModeState] = useState<ThemeMode>('auto');
@@ -52,11 +49,6 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   }, []);
 
   // Save preference
-  useEffect(() => {
-    // 只在 hydrated 后且 mode 真正改变时存储
-    // 避免首次 hydrated 触发不必要的写入
-  }, [mode]);
-
   // 单独的 effect 处理存储，避免循环依赖
   useEffect(() => {
     if (hydrated) {
