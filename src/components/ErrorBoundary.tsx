@@ -9,18 +9,14 @@ interface Props {
 
 // Inner component that uses hooks (called unconditionally)
 function ErrorFallback({ error, onReset }: { error: Error | null; onReset: () => void }) {
-  let theme;
-  try { theme = useTheme(); } catch { theme = null; }
-  const bg = theme?.background ?? '#FFFFFF';
-  const text = theme?.text ?? '#000000';
-  const secondary = theme?.textSecondary ?? '#666666';
+  const theme = useTheme();
   return (
-    <View style={[styles.container, { backgroundColor: bg }]}>
-      <Text style={[styles.title, { color: text }]}>出错了</Text>
-      <Text style={[styles.message, { color: secondary }]}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <Text style={[styles.title, { color: theme.text }]}>出错了</Text>
+      <Text style={[styles.message, { color: theme.textSecondary }]}>
         {error?.message || '未知错误'}
       </Text>
-      <Text style={[styles.hint, { color: secondary }]}>
+      <Text style={[styles.hint, { color: theme.textSecondary }]}>
         请尝试重新启动应用
       </Text>
       <Button title="重新加载" onPress={onReset} />
@@ -53,7 +49,7 @@ export function ErrorBoundary({ children, fallback }: Props) {
   const [hasError, setHasError] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const handleError = (error: Error, _errorInfo: ErrorInfo) => {
+  const handleError = (error: Error, errorInfo: ErrorInfo) => {
     if (__DEV__) {
       console.error('ErrorBoundary caught an error:', error.message);
     }

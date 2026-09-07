@@ -4,6 +4,15 @@ import { getStoredValue, setStoredValue } from '@/lib/storage';
 
 const STORAGE_KEY = 'course-table-app.timetable.v2';
 
+interface StoredTimetableData {
+  version: number;
+  courses: ScheduledCourse[];
+  importedFileName?: string;
+  semesterStartDate?: string;
+  semesterWeeks: number;
+  maxPeriods: number;
+}
+
 interface ContextValue {
   courses: ScheduledCourse[];
   timetable: TimetableData;
@@ -32,16 +41,52 @@ export function TimetableProvider({ children }: PropsWithChildren) {
     void (async () => {
       try {
         const raw = await getStoredValue(STORAGE_KEY);
+        let data: StoredTimetableData;
+
         if (raw) {
-          const data = JSON.parse(raw);
-          setCourses(data.courses ?? []);
-          setImportedFileName(data.importedFileName);
-          setSemesterStartDate(data.semesterStartDate);
-          setSemesterWeeks(data.semesterWeeks ?? computeSemesterWeeks(data.courses ?? []));
-          setMaxPeriods(data.maxPeriods ?? computeMaxPeriods(data.courses ?? []));
+          // Try to parse as JSON with version check
+          try {
+            const parsed = JSON.parse(raw) as any;
+            // If version is missing or outdated (before v2), migrate to v2
+            if (parsed.version !== 2) {
+              console.log('Migrating timetable data from v1 to v2...');
+              // Migrate v1 data (which doesn't have version, semesterWeeks, maxPeriods)
+              data = {
+                version: 2,
+                courses: parsed.courses ?? [],
+                importedFileName: parsed.importedFileName,
+                semesterStartDate: parsed.semesterStartDate,
+                semesterWeeks: parsed.semesterWeeks ?? DEFAULT_SEMESTER_WEEKS,
+                maxPeriods: parsed.maxPeriods ?? DEFAULT_MAX_PERIODS
+              };
+              // Persist migrated data
+              await setStoredValue(STORAGE_KEY, JSON.stringify(data));
+            } else {
+              data = parsed;
+            }
+          } catch (parseError) {
+            // Invalid JSON format; start fresh
+            console.warn('Failed to parse timetable data format; starting with empty timetable.', parseError);
+            data = { version: 2, courses: [], importedFileName: undefined, semesterStartDate: undefined, semesterWeeks: DEFAULT_SEMESTER_WEEKS, maxPeriods: DEFAULT_MAX_PERIODS };
+          }
+        } else {
+          // No stored data; start with defaults
+          data = { version: 2, courses: [], importedFileName: undefined, semesterStartDate: undefined, semesterWeeks: DEFAULT_SEMESTER_WEEKS, maxPeriods: DEFAULT_MAX_PERIODS };
         }
+
+        setCourses(data.courses);
+        setImportedFileName(data.importedFileName);
+        setSemesterStartDate(data.semesterStartDate);
+        setSemesterWeeks(data.semesterWeeks);
+        setMaxPeriods(data.maxPeriods);
       } catch (error) {
         console.warn('Failed to restore timetable data; using an empty timetable.', error);
+        // Start fresh on error
+        setCourses([]);
+        setImportedFileName(undefined);
+        setSemesterStartDate(undefined);
+        setSemesterWeeks(DEFAULT_SEMESTER_WEEKS);
+        setMaxPeriods(DEFAULT_MAX_PERIODS);
       } finally {
         setIsHydrated(true);
       }
@@ -50,10 +95,8 @@ export function TimetableProvider({ children }: PropsWithChildren) {
 
   // Persist data changes
   useEffect(() => {
-    if (isHydrated) {
-      void setStoredValue(STORAGE_KEY, JSON.stringify({ courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods }));
-    }
-  }, [courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods, isHydrated]);
+    void setStoredValue(STORAGE_KEY, JSON.stringify({ version: 2, courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods }));
+  }, [courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods]);
 
   const value = useMemo(() => ({
     courses,

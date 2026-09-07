@@ -9,19 +9,22 @@
       "distribution": "internal",
       "android": {
         "gradleCommand": ":app:assembleDebug"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "android": {
-        "gradleCommand": ":app:bundleRelease"
-      }
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "gradleCommand": ":app:bundleRelease"
-      }
+      },
+      "channel": "production"
     }
   }
 }

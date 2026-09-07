@@ -2,10 +2,9 @@ import { View, type ViewProps } from 'react-native';
 import { useTheme } from '@/hooks/use-theme';
 
 export function ThemedView({ style, type = 'default', ...props }: ViewProps & { type?: 'default' | 'backgroundElement' }) {
-  let theme;
-  try { theme = useTheme(); } catch { theme = null; }
+  const theme = useTheme();
   const bg = type === 'backgroundElement'
-    ? (theme?.backgroundElement ?? '#F5F5F5')
-    : (theme?.background ?? '#FFFFFF');
+    ? theme.backgroundElement
+    : theme.background;
   return <View style={[{ backgroundColor: bg }, style]} {...props} />;
 }

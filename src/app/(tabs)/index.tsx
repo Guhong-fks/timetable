@@ -1,4 +1,4 @@
-import { startTransition, useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { startTransition, useState, useMemo, useEffect, useCallback } from 'react';
 import { AppState, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -121,24 +121,25 @@ export default function TimetableScreen() {
   };
 
   const renderCourseCard = (course: ScheduledCourse, duration: number) => (
-    <Pressable
-      key={course.id}
-      onPress={() => handleCoursePress(course)}
-      style={[
-        styles.card,
-        { height: Math.max(duration * SLOT_BASE_HEIGHT - GAP * 2, 58) },
-        { backgroundColor: theme.backgroundElement },
-        { borderColor: theme.textSecondary + '33' },
-      ]}
-      accessibilityRole="button"
-      accessibilityLabel={`${course.name}，${course.location.building} ${course.location.room}`}
-    >
-      <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5}>{course.name}</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4}>
-        {[course.location.building, course.location.room].filter(v => v && v !== '未填写').join(' ') || '未填写'}
-      </ThemedText>
-    </Pressable>
-  );
+      <Pressable
+        key={course.id}
+        onPress={() => handleCoursePress(course)}
+        style={[
+          styles.card,
+          { height: Math.max(duration * SLOT_BASE_HEIGHT - GAP * 2, 58) },
+          { borderColor: theme.textSecondary + '33' },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={`${course.name}，${course.location.building} ${course.location.room}`}
+      >
+        <ThemedView type="backgroundElement" style={styles.cardContent}>
+          <ThemedText type="smallBold" style={styles.courseName} numberOfLines={5}>{course.name}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.courseLocation} numberOfLines={4}>
+            {[course.location.building, course.location.room].filter(v => v && v !== '未填写').join(' ') || '未填写'}
+          </ThemedText>
+        </ThemedView>
+      </Pressable>
+    );
 
   // Build positioned courses per day for absolute layout
   const positionedCourses = useMemo(() => {
@@ -537,22 +538,25 @@ const styles = StyleSheet.create({
   },
 
   // Course cards - taller, more readable
-  card: {
-    borderRadius: 5,
-    padding: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
-    borderWidth: 1,
-    width: '100%',
-    height: '100%',
-    overflow: 'visible',
-  },
-  courseName: { fontSize: 10, lineHeight: 13, fontWeight: '700', flexShrink: 1 },
-  courseLocation: { fontSize: 9, lineHeight: 12, marginTop: 0, flexShrink: 1 },
-  fileName: { marginTop: Spacing.one, textAlign: 'center', fontSize: 10 },
+    card: {
+      borderRadius: 5,
+      padding: 5,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.08,
+      shadowRadius: 2,
+      elevation: 2,
+      borderWidth: 1,
+      width: '100%',
+      height: '100%',
+      overflow: 'visible',
+    },
+    cardContent: {
+      flex: 1,
+    },
+    courseName: { fontSize: 10, lineHeight: 13, fontWeight: '700', flexShrink: 1 },
+    courseLocation: { fontSize: 9, lineHeight: 12, marginTop: 0, flexShrink: 1 },
+    fileName: { marginTop: Spacing.one, textAlign: 'center', fontSize: 10 },
 
   // Modals
   modalOverlay: {

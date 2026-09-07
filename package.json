@@ -14,6 +14,7 @@
     "expo-splash-screen": "~57.0.8",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.3",
+    "expo-updates": "~57.0.21",
     "htmlparser2": "~12.0.0",
     "mammoth": "^1.11.0",
     "react": "19.2.3",
@@ -34,7 +35,7 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "web": "expo start --web",
     "lint": "expo lint"
   },

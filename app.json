@@ -2,7 +2,7 @@
   "expo": {
     "name": "课程表",
     "slug": "course-table-app",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "coursetableapp",
@@ -42,6 +42,13 @@
       "eas": {
         "projectId": "7f3e7f03-1d6c-4d2d-8a9e-e660b375e400"
       }
-    }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/7f3e7f03-1d6c-4d2d-8a9e-e660b375e400"
+    },
+    "ios": {}
   }
 }
