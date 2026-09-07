@@ -28,7 +28,7 @@ describe('computeMaxPeriods', () => {
     id: 'x', name: 'x', day: 'Monday' as any, timeSlot: TimeSlot.ONE_TWO,
     startPeriod: 1, endPeriod: 2, duration: 2,
     location: { address: '博学楼 B101' },
-    teacher: { name: 't' }, weekPattern: 'full',
+    teacher: { name: 't' }, weekList: [1, 2, 3], isOddEven: null,
     ...overrides,
   });
 
@@ -84,7 +84,8 @@ describe('sanitizeCourses', () => {
     duration: 2,
     location: { address: '博学楼 B101' },
     teacher: { name: 't' },
-    weekPattern: 'full' as const,
+    weekList: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    isOddEven: null,
   };
 
   it('returns [] for non-array input', () => {

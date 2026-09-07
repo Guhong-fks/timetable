@@ -64,18 +64,19 @@ describe('slot', () => {
     expect(slot(8)).toBe(TimeSlot.EIGHT);
   });
 
-  it('falls back to TEN for unknown start values', () => {
-    expect(slot(0, 0)).toBe(TimeSlot.TEN);
-    expect(slot(2, 2)).toBe(TimeSlot.TEN);
-    expect(slot(14, 14)).toBe(TimeSlot.TEN);
+  it('falls back to null for unknown start values', () => {
+    // 0/2/14 are out of [1, 13]; parser must reject, not silently coerce.
+    expect(slot(0, 0)).toBeNull();
+    expect(slot(2, 2)).toBeNull();
+    expect(slot(14, 14)).toBeNull();
   });
 
-  it('falls back to TEN when start/end are not finite', () => {
-    expect(slot(Number.NaN, 5)).toBe(TimeSlot.TEN);
-    expect(slot(5, Number.NaN)).toBe(TimeSlot.TEN);
+  it('falls back to null when start/end are not finite', () => {
+    expect(slot(Number.NaN, 5)).toBeNull();
+    expect(slot(5, Number.NaN)).toBeNull();
   });
 
-  it('falls back to TEN when end < start', () => {
-    expect(slot(5, 4)).toBe(TimeSlot.TEN);
+  it('falls back to null when end < start', () => {
+    expect(slot(5, 4)).toBeNull();
   });
 });

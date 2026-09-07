@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { parseTimetableFile } from '@/lib/importers/timetable-importer';
+import { parseTimetableFile, isNativeBridgeAvailable } from '@/lib/importers/timetable-importer';
 import { useTimetable } from '@/state/timetable-context';
 
 export default function ImportScreen() {
@@ -16,7 +16,19 @@ export default function ImportScreen() {
   const [loading, setLoading] = useState(false);
   const [startDateInput, setStartDateInput] = useState(semesterStartDate ?? '');
   const [lastImportTime, setLastImportTime] = useState(0);
+  // Probed once on mount. False on Expo Go (the Nitro native binary is not
+  // bundled); true on a Development Build / EAS Build. We use this to
+  // surface a clear, non-blocking warning instead of letting the user pick
+  // a file and only then find out the parser can't run.
+  const [nativeAvailable, setNativeAvailable] = useState<boolean | null>(null);
+  // ...rest of hooks
   const IMPORT_COOLDOWN_MS = 3000;
+
+  // Detect once on mount. Safe: `isNativeBridgeAvailable` does a `require`
+  // inside a try/catch and never throws across the boundary.
+  useEffect(() => {
+    setNativeAvailable(isNativeBridgeAvailable());
+  }, []);
 
   async function choose(file?: { name: string; size?: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; size?: number; type?: string; uri: string }) {
     if (!file) return;
@@ -30,15 +42,36 @@ export default function ImportScreen() {
     setLastImportTime(now);
     try {
       const result = await parseTimetableFile(file);
-      replaceCourses(result.courses, file.name);
-      setStatus(`已导入 ${result.courses.length} 门课程。`);
-    }
-    catch (error) {
-      setStatus(error instanceof Error ? error.message : '导入失败');
-    }
-    finally {
+      replaceCourses(result.courses, file.name, undefined, result.report);
+      if (result.report.warnings.length > 0) {
+        setStatus(`已导入 ${result.courses.length} 门课程（${result.report.warnings.length} 条警告，请查看课表底部详情）`);
+      } else {
+        setStatus(`已导入 ${result.courses.length} 门课程。`);
+      }
+    } catch (error) {
+      setStatus(humanizeImportError(error));
+    } finally {
       setLoading(false);
     }
+  }
+
+  /**
+   * Translate any thrown value into a Chinese status string. The parser
+   * already emits Chinese messages for known failures; this function only
+   * catches the long-tail cases (storage exceptions, JSON parse errors,
+   * native bridge failures, unknown throws).
+   */
+  function humanizeImportError(error: unknown): string {
+    if (error instanceof Error) {
+      // Known-localised messages from the parser — pass through verbatim
+      // so we don't double-translate. (We test for Chinese characters to
+      // avoid showing English tech errors like "Unexpected token …".)
+      if (/[一-龥]/.test(error.message)) return error.message;
+      // Bare technical message — wrap it with a "what to do" hint.
+      console.warn('[import] underlying error:', error);
+      return '导入失败：文件可能已损坏或不是有效的课表模板';
+    }
+    return '导入失败：未知错误';
   }
 
   async function chooseNativeFile() {
@@ -68,6 +101,25 @@ export default function ImportScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText type="title">导入课表</ThemedText>
           <ThemedText themeColor="textSecondary">选择你的 Word 课表文件 (.docx)。</ThemedText>
+
+          {/* Surface the missing-native-module case early. On Expo Go the
+              Nitro binary isn't bundled, so picking a file would only fail
+              with a tech error inside the parser — much friendlier to show
+              a single banner before the user goes through the picker. */}
+          {nativeAvailable === false && (
+            <ThemedView
+              type="backgroundElement"
+              style={[styles.section, styles.nativeMissingBanner]}
+            >
+              <ThemedText type="subtitle">
+                              当前环境不支持本地解析
+                            </ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.hint}>
+                Expo Go 不含原生模块，无法解析 .docx。请使用 Development Build 或 EAS
+                Build 后再导入文件。课表底部其他设置仍可正常使用。
+              </ThemedText>
+            </ThemedView>
+          )}
 
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
@@ -125,6 +177,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center' },
   content: { padding: Spacing.four, gap: Spacing.three },
   section: { padding: Spacing.three, borderRadius: Spacing.two, gap: Spacing.two, marginBottom: Spacing.two },
+  nativeMissingBanner: { borderWidth: 1, borderColor: '#D6913A' },
   hint: { fontSize: 12, marginBottom: Spacing.one, opacity: 0.7 },
   dateInput: {
     borderWidth: 1,

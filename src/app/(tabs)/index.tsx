@@ -8,6 +8,8 @@ import { useTimetable } from '@/state/timetable-context';
 import { useTheme } from '@/hooks/use-theme';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
 import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
+import type { ReportWarning } from '@/lib/reporting/types';
+import type { ImportReport } from '@/state/timetable-context';
 
 // Compact layout constants for mobile timetable
 const DAY_WIDTH = 52;
@@ -25,16 +27,18 @@ const SHORT_DAY_LABELS: Record<typeof WEEK_DAYS[number], string> = {
 
 export default function TimetableScreen() {
   const theme = useTheme();
-  const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods } = useTimetable();
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [weekInput, setWeekInput] = useState('1');
-  const [selectedCourse, setSelectedCourse] = useState<ScheduledCourse | null>(null);
-  const [periodTimes, setPeriodTimes] = useState<Record<number, string>>(() => createDefaultPeriodTimes());
-  const [periodDurations, setPeriodDurations] = useState<Record<number, number>>(() => createDefaultPeriodDurations());
-  const [periodStorageLoaded, setPeriodStorageLoaded] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
-  const [periodTimeInput, setPeriodTimeInput] = useState('');
-  const [periodDurationInput, setPeriodDurationInput] = useState('45');
+  const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods, lastReport, dismissReport } = useTimetable();
+    const [selectedWeek, setSelectedWeek] = useState(1);
+    const [weekInput, setWeekInput] = useState('1');
+    const [selectedCourse, setSelectedCourse] = useState<ScheduledCourse | null>(null);
+    const [periodTimes, setPeriodTimes] = useState<Record<number, string>>(() => createDefaultPeriodTimes());
+    const [periodDurations, setPeriodDurations] = useState<Record<number, number>>(() => createDefaultPeriodDurations());
+    const [periodStorageLoaded, setPeriodStorageLoaded] = useState(false);
+    const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
+    const [periodTimeInput, setPeriodTimeInput] = useState('');
+    const [periodDurationInput, setPeriodDurationInput] = useState('45');
+    /** Controls the "解析详情" modal. */
+    const [reportDetailOpen, setReportDetailOpen] = useState(false);
 
   // Auto-jump to current week based on today's date
   const jumpToCurrentWeek = useCallback(() => {
@@ -274,28 +278,175 @@ export default function TimetableScreen() {
             </ScrollView>
           </ScrollView>
         )}
+                {lastReport && lastReport.warnings.length > 0 && (
+                          <ReportBanner
+                            report={lastReport}
+                            onPress={() => setReportDetailOpen(true)}
+                            onDismiss={dismissReport}
+                          />
+                        )}
 
-      </SafeAreaView>
+                      </SafeAreaView>
 
-      {selectedCourse && (
-        <CourseDetailModal course={selectedCourse} periodTimes={periodTimes} periodDurations={periodDurations} onClose={() => setSelectedCourse(null)} />
-      )}
-      {selectedPeriod !== null && (
-        <PeriodTimeModal
-          period={selectedPeriod}
-          value={periodTimeInput}
-          duration={periodDurationInput}
-          onChange={setPeriodTimeInput}
-          onDurationChange={setPeriodDurationInput}
-          onSave={savePeriodTime}
-          onClose={() => setSelectedPeriod(null)}
-        />
-      )}
+                      {selectedCourse && (
+                        <CourseDetailModal course={selectedCourse} periodTimes={periodTimes} periodDurations={periodDurations} onClose={() => setSelectedCourse(null)} />
+                      )}
+                      {reportDetailOpen && lastReport && (
+                        <ReportDetailModal
+                          report={lastReport}
+                          onClose={() => setReportDetailOpen(false)}
+                        />
+                      )}
+                      {selectedPeriod !== null && (
+                        <PeriodTimeModal
+                          period={selectedPeriod}
+                          value={periodTimeInput}
+                          duration={periodDurationInput}
+                          onChange={setPeriodTimeInput}
+                          onDurationChange={setPeriodDurationInput}
+                          onSave={savePeriodTime}
+                          onClose={() => setSelectedPeriod(null)}
+                        />
+                      )}
     </ThemedView>
-  );
-}
+      );
+    }
 
-function CourseDetailModal({ course, periodTimes, periodDurations, onClose }: { course: ScheduledCourse; periodTimes: Record<number, string>; periodDurations: Record<number, number>; onClose: () => void }) {
+    // =============================================================================
+    // Parse-report UI: a compact banner pinned to the bottom of the timetable
+    // plus a full-detail modal. Visible only while `lastReport` has warnings.
+    // =============================================================================
+
+    const REPORT_CATEGORY_LABELS: Record<ReportWarning['category'], string> = {
+      header: '表头',
+      period: '节次',
+      cell: '单元格',
+      week: '周次',
+      teacher: '教师',
+      address: '地址',
+      system: '系统',
+    };
+
+    const REPORT_SEVERITY_COLORS: Record<ReportWarning['severity'], string> = {
+      info: '#5B9BD5',
+      warning: '#D6913A',
+      error: '#C0392B',
+    };
+
+    function ReportBanner({ report, onPress, onDismiss }: {
+      report: ImportReport;
+      onPress: () => void;
+      onDismiss: () => void;
+    }) {
+      const count = report.warnings.length;
+      const hasErrors = report.warnings.some((w) => w.severity === 'error');
+      const accent = hasErrors ? REPORT_SEVERITY_COLORS.error : REPORT_SEVERITY_COLORS.warning;
+      return (
+        <View style={[reportBannerStyles.wrap, { borderColor: accent }]}>
+          <Pressable onPress={onPress} style={reportBannerStyles.body} accessibilityRole="button" accessibilityLabel="查看解析详情">
+            <ThemedText style={[reportBannerStyles.icon, { color: accent }]}>⚠</ThemedText>
+            <ThemedText style={reportBannerStyles.text} numberOfLines={2}>
+              解析存在 {count} 条警告，点击查看详情
+            </ThemedText>
+          </Pressable>
+          <Pressable onPress={onDismiss} style={reportBannerStyles.dismissBtn} accessibilityRole="button" accessibilityLabel="关闭警告横幅">
+            <ThemedText style={reportBannerStyles.dismiss}>×</ThemedText>
+          </Pressable>
+        </View>
+      );
+    }
+
+    const reportBannerStyles = StyleSheet.create({
+      wrap: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginHorizontal: Spacing.two,
+        marginBottom: Spacing.one,
+        paddingVertical: Spacing.one,
+        paddingHorizontal: Spacing.two,
+        borderWidth: 1,
+        borderRadius: Spacing.one,
+        backgroundColor: 'rgba(214,145,58,0.08)',
+      },
+      body: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.one },
+      icon: { fontSize: 18, marginRight: Spacing.one },
+      text: { flex: 1, fontSize: 13 },
+      dismissBtn: { paddingHorizontal: Spacing.one },
+      dismiss: { fontSize: 18, fontWeight: '700', color: '#888' },
+    });
+
+    function ReportDetailModal({ report, onClose }: { report: ImportReport; onClose: () => void }) {
+      const theme = useTheme();
+      // Group warnings by category for readability.
+      const grouped = new Map<ReportWarning['category'], ReportWarning[]>();
+      for (const w of report.warnings) {
+        const arr = grouped.get(w.category) ?? [];
+        arr.push(w);
+        grouped.set(w.category, arr);
+      }
+      return (
+        <Modal visible={true} onRequestClose={onClose} animationType="slide" transparent={true}>
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+            <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement, maxHeight: '85%' }]}>
+              <View style={styles.modalHeader}>
+                <ThemedText type="title" style={styles.modalTitle}>解析详情</ThemedText>
+                <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
+                  <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
+                </Pressable>
+              </View>
+              <ScrollView style={reportDetailStyles.body}>
+                <ThemedText themeColor="textSecondary" style={reportDetailStyles.summary}>
+                  共 {report.warnings.length} 条警告{report.suggestions.length ? `，${report.suggestions.length} 条建议` : ''}
+                </ThemedText>
+                {[...grouped.entries()].map(([category, items]) => (
+                  <View key={category} style={reportDetailStyles.section}>
+                    <ThemedText type="subtitle" style={reportDetailStyles.sectionTitle}>
+                      {REPORT_CATEGORY_LABELS[category]}（{items.length}）
+                    </ThemedText>
+                    {items.map((w, idx) => (
+                      <View key={`${category}-${idx}`} style={reportDetailStyles.item}>
+                        <View style={[reportDetailStyles.dot, { backgroundColor: REPORT_SEVERITY_COLORS[w.severity] }]} />
+                        <View style={reportDetailStyles.itemBody}>
+                          <ThemedText style={reportDetailStyles.itemMessage}>{w.message}</ThemedText>
+                          {w.rawText ? (
+                            <ThemedText themeColor="textSecondary" style={reportDetailStyles.itemRaw} numberOfLines={2}>
+                              {w.rawText}
+                            </ThemedText>
+                          ) : null}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+                {report.suggestions.length > 0 && (
+                  <View style={reportDetailStyles.section}>
+                    <ThemedText type="subtitle" style={reportDetailStyles.sectionTitle}>建议</ThemedText>
+                    {report.suggestions.map((s, idx) => (
+                      <ThemedText key={`s-${idx}`} style={reportDetailStyles.suggestion}>· {s}</ThemedText>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      );
+    }
+
+    const reportDetailStyles = StyleSheet.create({
+      body: { paddingHorizontal: Spacing.three, paddingBottom: Spacing.three },
+      summary: { fontSize: 13, marginVertical: Spacing.two },
+      section: { marginBottom: Spacing.three },
+      sectionTitle: { marginBottom: Spacing.one },
+      item: { flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.two },
+      dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
+      itemBody: { flex: 1 },
+      itemMessage: { fontSize: 14 },
+      itemRaw: { fontSize: 12, marginTop: 2 },
+      suggestion: { fontSize: 13, marginBottom: 4 },
+    });
+
+    function CourseDetailModal({ course, periodTimes, periodDurations, onClose }: { course: ScheduledCourse; periodTimes: Record<number, string>; periodDurations: Record<number, number>; onClose: () => void }) {
   const theme = useTheme();
   const meta = getTimeSlotMeta(course.timeSlot);
   if (!meta) return null;
@@ -315,9 +466,9 @@ function CourseDetailModal({ course, periodTimes, periodDurations, onClose }: { 
           </View>
           <View style={styles.modalBody}>
                       <DetailRow label="上课时间" value={`${WEEK_DAY_LABELS[course.day]} ${formatPeriodTimeRange(startPeriod, endPeriod, periodTimes, periodDurations)}`} />
-                      <DetailRow label="上课地点" value={course.location.address} />
-                      <DetailRow label="教师" value={`${course.teacher.name}${course.teacher.title ? ` · ${course.teacher.title}` : ''}`} />
-                      <DetailRow label="周次模式" value={course.weekPattern === 'full' ? '全周' : `指定周: ${course.specificWeeks?.join(', ')}`} />
+                      <DetailRow label="上课地点" value={course.location.address || '未填写'} />
+                                            <DetailRow label="教师" value={`${course.teacher.name || '未填写'}${course.teacher.title ? ` · ${course.teacher.title}` : ''}`} />
+                      <DetailRow label="周次" value={formatWeekDisplay(course.weekList, course.isOddEven)} />
                     </View>
         </View>
       </View>
@@ -396,6 +547,47 @@ function formatPeriodTimeRange(start: number, end: number, periodTimes: Record<n
   const lessonCount = end - start + 1;
   const duration = Array.from({ length: lessonCount }, (_, index) => periodDurations[start + index] ?? 45).reduce((total, minutes) => total + minutes, 0) + (lessonCount - 1) * 5;
   return `(第${start}-${end}节 ${formatPeriodRange(startTime, duration)})`;
+}
+
+/**
+ * Render a course's week info for the detail modal. Replaces the old
+ * "周次模式" full/specific toggle — the v4 shape carries the concrete
+ * weekList plus an optional odd/even marker, so we can show:
+ *   - "全周" when the list covers [1..N] contiguously with N≥18
+ *   - "单周 [1, 3, 5, ...]" / "双周 [2, 4, ...]" when marker present
+ *   - "指定周: 1-8, 10-16" (range form) when no marker and not full
+ */
+function formatWeekDisplay(
+  weekList: number[],
+  isOddEven: 'odd' | 'even' | null | undefined,
+): string {
+  if (!weekList || weekList.length === 0) return '未指定';
+
+  // "Full" heuristic: contiguous from 1 and length ≥ DEFAULT_SEMESTER_WEEKS.
+  const isFullSemester =
+    weekList[0] === 1 &&
+    weekList.every((w, i) => i === 0 || w === weekList[i - 1] + 1) &&
+    weekList.length >= 18;
+
+  if (isFullSemester) return '全周';
+  if (isOddEven === 'odd') return `单周 ${weekList.join(', ')}`;
+  if (isOddEven === 'even') return `双周 ${weekList.join(', ')}`;
+
+  // Compress runs to range form for readability: 1,2,3,5,7,8 → "1-3, 5, 7-8".
+  const parts: string[] = [];
+  let i = 0;
+  while (i < weekList.length) {
+    const start = weekList[i];
+    let end = start;
+    let j = i + 1;
+    while (j < weekList.length && weekList[j] === end + 1) {
+      end = weekList[j];
+      j++;
+    }
+    parts.push(start === end ? `${start}` : `${start}-${end}`);
+    i = j;
+  }
+  return `指定周: ${parts.join(', ')}`;
 }
 
 function parseLocalDate(value: string): Date | null {

@@ -47,8 +47,10 @@ export const WEEK_DAY_LABELS: Record<WeekDay, string> = { Monday: '周一', Tues
  * whose timeSlot can no longer be resolved. Recompute `startPeriod` /
  * `endPeriod` so renderer positioning is consistent even when the persisted
  * `duration` no longer matches the slot meta (e.g. imported `5-7节`
- * persisted as `FIVE_SIX` with duration=3). Returns a fresh ScheduledCourse
- * array. */
+ * persisted as `FIVE_SIX` with duration=3). v4 migration: collapse the old
+ * `(weekPattern, specificWeeks)` pair into the new `(weekList, isOddEven)`
+ * pair so data persisted before this change still loads. Returns a fresh
+ * ScheduledCourse array. */
 export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
   if (!Array.isArray(raw)) return [];
   const out: ScheduledCourse[] = [];
@@ -59,6 +61,9 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
       classes?: unknown;
       startPeriod?: unknown;
       endPeriod?: unknown;
+      // Legacy (pre-v4) week shape. Persisted JSON may still carry these.
+      weekPattern?: unknown;
+      specificWeeks?: unknown;
       location?: { address?: string; campus?: string; building?: string; room?: string };
     };
     const meta = getTimeSlotMeta(c.timeSlot as string);
@@ -84,8 +89,47 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
     const storedEnd = typeof c.endPeriod === 'number' && c.endPeriod >= 1 && c.endPeriod <= 13 ? c.endPeriod : undefined;
     const startPeriod = storedStart ?? metaStart;
     const endPeriod = storedEnd
-      ?? (storedDuration ? Math.min(startPeriod + storedDuration - 1, 13) : metaEnd);
+    ?? (storedDuration ? Math.min(startPeriod + storedDuration - 1, 13) : metaEnd);
     const duration = endPeriod - startPeriod + 1;
+
+    // v4 week-shape migration. New JSON has `weekList` (+ optional
+    // `isOddEven`); legacy JSON has `(weekPattern, specificWeeks?)`.
+    let weekList: number[];
+    let isOddEven: 'odd' | 'even' | null | undefined;
+    if (Array.isArray(c.weekList)) {
+      weekList = (c.weekList as unknown[]).filter(
+        (n): n is number => typeof n === 'number' && n >= 1 && n <= 25,
+      );
+      isOddEven =
+        c.isOddEven === 'odd' || c.isOddEven === 'even' || c.isOddEven === null
+          ? c.isOddEven
+          : undefined;
+    } else if (c.weekPattern === 'full') {
+      // Legacy full-semester: we don't know how long the semester was.
+      // Use DEFAULT_SEMESTER_WEEKS so renderer weeks ≥ this still show.
+      weekList = [];
+      for (let w = 1; w <= DEFAULT_SEMESTER_WEEKS; w++) weekList.push(w);
+      isOddEven = null;
+    } else if (Array.isArray(c.specificWeeks)) {
+      weekList = (c.specificWeeks as unknown[]).filter(
+        (n): n is number => typeof n === 'number' && n >= 1 && n <= 25,
+      );
+      isOddEven = null;
+    } else {
+      weekList = [];
+      isOddEven = undefined;
+    }
+
+    // Strip legacy placeholder values that pre-date #3 cleanup. Old payloads
+    // (v3 storage) may carry '未填写' for teacher.name and an empty /
+    // placeholder address; rewrite them to '' so the UI applies its own
+    // fallback at render time.
+    const cleanTeacher = (() => {
+      const name = (c.teacher as { name?: unknown })?.name;
+      if (typeof name !== 'string') return { name: '' };
+      return name === '未填写' ? { name: '' } : { name };
+    })();
+    const cleanAddress = address === '未填写' ? '' : address;
 
     out.push({
       id: String(c.id ?? ''),
@@ -95,10 +139,10 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
       startPeriod,
       endPeriod,
       duration,
-      location: { address },
-      teacher: c.teacher as ScheduledCourse['teacher'],
-      weekPattern: c.weekPattern as ScheduledCourse['weekPattern'],
-      specificWeeks: c.specificWeeks,
+      location: { address: cleanAddress },
+      teacher: cleanTeacher,
+      weekList,
+      isOddEven,
     });
   }
   return out;
@@ -116,8 +160,8 @@ export function getTimeSlotMeta(slot: string): {label: string; start: number; en
 export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
   let max = DEFAULT_SEMESTER_WEEKS;
   for (const course of courses) {
-    if (course.weekPattern === 'specific' && course.specificWeeks) {
-      for (const w of course.specificWeeks) if (w > max) max = w;
+    for (const w of course.weekList ?? []) {
+      if (w > max) max = w;
     }
   }
   return max;
@@ -159,8 +203,23 @@ export interface ScheduledCourse {
   endPeriod: number;
   location: { address: string };
   teacher: { name: string; title?: string };
-  weekPattern: 'full' | 'specific';
-  specificWeeks?: number[];
+  /**
+   * Concrete, sorted, deduped 1-based week numbers the course runs in.
+   * Persisted as-is — no string-union discriminator needed; the renderer
+   * can derive "full" / "specific" / "odd" / "even" labels from this list
+   * plus `isOddEven`.
+   */
+  weekList: number[];
+  /**
+   * Marker from the source text:
+   *   'odd'   — explicit "单周" (intersected with `weekList`)
+   *   'even'  — explicit "双周" (intersected with `weekList`)
+   *   null    — explicit range / list / or both markers (conflict ⇒ full)
+   * `undefined` only when the source had no usable week info; in that
+   * case `weekList` is empty and the importer's normaliser has already
+   * dropped the course via a `cell` warning.
+   */
+  isOddEven?: 'odd' | 'even' | null;
   /** `endPeriod - startPeriod + 1`. Kept as a convenience field for the
    * renderer; always equals `endPeriod - startPeriod + 1`. */
   duration: number;
@@ -175,5 +234,5 @@ export function coursesToTimetable(courses: ScheduledCourse[]): TimetableData {
   return result;
 }
 export function coursesForWeek(courses: ScheduledCourse[], week: number): ScheduledCourse[] {
-  return courses.filter(course => course.weekPattern === 'full' || course.specificWeeks?.includes(week));
+  return courses.filter(course => course.weekList?.includes(week));
 }
