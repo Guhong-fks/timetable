@@ -1,4 +1,4 @@
-import { computeMaxPeriods, getTimeSlotMeta, sanitizeCourses, TimeSlot } from '@/types/timetable';
+import { computeMaxPeriods, DEFAULT_MAX_PERIODS, getTimeSlotMeta, sanitizeCourses, TimeSlot } from '@/types/timetable';
 import type { ScheduledCourse } from '@/types/timetable';
 
 describe('getTimeSlotMeta', () => {
@@ -32,44 +32,45 @@ describe('computeMaxPeriods', () => {
     ...overrides,
   });
 
-  it('computes max from new slot keys', () => {
+  it('renders the ACTUAL max end period — a 12-period timetable shows 12 rows', () => {
     const courses = [
       base({ timeSlot: TimeSlot.EIGHT, startPeriod: 8, endPeriod: 8, duration: 1 }),
       base({ timeSlot: TimeSlot.TWELVE, startPeriod: 12, endPeriod: 12, duration: 1 }),
-      base({ timeSlot: TimeSlot.THIRTEEN, startPeriod: 13, endPeriod: 13, duration: 1 }),
     ];
-    expect(computeMaxPeriods(courses)).toBe(13);
+    expect(computeMaxPeriods(courses)).toBe(12);
   });
 
-  it('does not crash on legacy "11-13" data (backward compat)', () => {
-    const courses = [base({ timeSlot: '11-13' as any })];
-    expect(computeMaxPeriods(courses)).toBe(13);
-  });
-
-  it('skips courses with unknown timeSlot keys instead of throwing', () => {
-    const courses = [base({ timeSlot: '99' as any })];
-    expect(computeMaxPeriods(courses)).toBe(13); // fallback to DEFAULT_MAX_PERIODS
-  });
-
-  it('uses authoritative endPeriod when it exceeds the slot meta end AND the default floor (e.g. 7-9节 -> endPeriod=9 -> max=9)', () => {
-    // The base floor is DEFAULT_MAX_PERIODS=13, so 5-7节 alone leaves max=13.
-    // But when endPeriod exceeds the slot meta end AND the floor matters,
-    // the function must use endPeriod. 7-9节 has meta.end=8, endPeriod=9.
+  it('non-standard spans drive the row count (7-9节 -> endPeriod=9 -> 9 rows)', () => {
     const courses = [
       base({ timeSlot: TimeSlot.SEVEN_EIGHT, startPeriod: 7, endPeriod: 9, duration: 3 }),
     ];
-    // 9 < 13, so the floor wins — confirms endPeriod is consulted (not meta.end=8)
-    // and that we still respect the floor.
-    expect(computeMaxPeriods(courses)).toBe(13);
+    expect(computeMaxPeriods(courses)).toBe(9);
   });
 
-  it('raises max when endPeriod exceeds the default floor (e.g. 5-13节 -> endPeriod=13)', () => {
-    // 5-13节 is the longest valid course spanning periods 5..13. The slot
-    // anchor would be FIVE_SIX (meta.end=6) but endPeriod must drive max.
+  it('clamps to the 13-period ceiling (5-13节 -> 13 rows)', () => {
     const courses = [
       base({ timeSlot: TimeSlot.FIVE_SIX, startPeriod: 5, endPeriod: 13, duration: 9 }),
     ];
     expect(computeMaxPeriods(courses)).toBe(13);
+  });
+
+  it('legacy "11-13" data is read through meta (13 rows)', () => {
+    const courses = [base({ timeSlot: '11-13' as any, startPeriod: undefined as any, endPeriod: undefined as any })];
+    expect(computeMaxPeriods(courses)).toBe(13);
+  });
+
+  it('drops courses whose timeSlot cannot be resolved — nothing left -> default', () => {
+    const courses = [base({ timeSlot: '99' as any, startPeriod: undefined as any, endPeriod: undefined as any })];
+    expect(computeMaxPeriods(courses)).toBe(DEFAULT_MAX_PERIODS);
+  });
+
+  it('no courses at all -> default', () => {
+    expect(computeMaxPeriods([])).toBe(DEFAULT_MAX_PERIODS);
+  });
+
+  it('falls back to slot meta when positional fields are absent (5-6 -> 6 rows)', () => {
+    const courses = [base({ timeSlot: TimeSlot.FIVE_SIX, startPeriod: undefined as any, endPeriod: undefined as any })];
+    expect(computeMaxPeriods(courses)).toBe(6);
   });
 });
 

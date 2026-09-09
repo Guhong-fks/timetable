@@ -168,21 +168,21 @@ export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
   return max > 0 ? max : DEFAULT_SEMESTER_WEEKS;
 }
 
-/** Compute max periods per day from imported courses (max end period) */
+/** Compute the period rows the grid needs: the max end period across ALL
+ * courses (rows are shared per-grid, so the latest course wins). No fixed
+ * floor — an imported timetable whose last course is period 12 renders 12
+ * rows, exactly matching the schedule. Legacy data without positional
+ * fields falls back to slot meta. DEFAULT_MAX_PERIODS only when there are
+ * no courses (empty state). */
 export function computeMaxPeriods(courses: ScheduledCourse[]): number {
-  let max = DEFAULT_MAX_PERIODS;
+  let max = 0;
   for (const course of courses) {
-    // Prefer the authoritative endPeriod written by the importer; fall back
-    // to meta so legacy data still produces the right grid height.
-    if (typeof course.endPeriod === 'number' && course.endPeriod > max) {
-      max = course.endPeriod;
-      continue;
-    }
-    const meta = getTimeSlotMeta(course.timeSlot);
-    if (!meta) continue;
-    if (meta.end > max) max = meta.end;
+    const end = typeof course.endPeriod === 'number'
+      ? course.endPeriod
+      : getTimeSlotMeta(course.timeSlot)?.end ?? 0;
+    if (end > max) max = end;
   }
-  return max;
+  return max > 0 ? Math.min(max, DEFAULT_MAX_PERIODS) : DEFAULT_MAX_PERIODS;
 }
 
 /** Generate array of period numbers [1, 2, ..., maxPeriods] */
