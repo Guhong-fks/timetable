@@ -7,10 +7,10 @@ import type { ReportWarning, ReportCategory, ReportSeverity } from './types';
  * call so a fresh import never inherits warnings from a previous one.
  *
  * Why a singleton and not function-scoped state:
- *   - The parser chain (`ParserChain`) and `normaliseBlock` are already
- *     deeply nested; passing a `report` argument through every call would
- *     explode the surface area. A shared instance is the lowest-friction
- *     way to collect from anywhere.
+ *   - The recognizer pipeline (grid placement → cell reading → course
+ *     assembly) is deeply nested; passing a `report` argument through
+ *     every call would explode the surface area. A shared instance is
+ *     the lowest-friction way to collect from anywhere.
  *   - Consumers (the importer entry point) read the singleton exactly
  *     once per import, then snapshot it into the returned `ImportResult`.
  *
@@ -101,17 +101,4 @@ export class ParseReport {
       suggestions: [...this.suggestions],
     };
   }
-}
-
-/**
- * Build a ParseReport-shaped object from arrays of warnings. Used by the
- * importer to assemble the final report from the local `warnings[]`
- * accumulator (kept inside `parseDocxFile` so unit tests can run without
- * touching the singleton).
- */
-export function buildReportFromLists(
-  warnings: ReportWarning[],
-  suggestions: string[] = [],
-): { warnings: ReportWarning[]; suggestions: string[] } {
-  return { warnings, suggestions };
 }

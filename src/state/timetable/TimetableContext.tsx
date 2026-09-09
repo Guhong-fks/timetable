@@ -20,6 +20,9 @@ interface ContextValue {
     semesterStartDate?: string,
     report?: ImportReport,
   ) => void;
+  updateCourse: (id: string, patch: Partial<ScheduledCourse>) => void;
+  addCourse: (course: Omit<ScheduledCourse, 'id'> & { id?: string }) => void;
+  deleteCourses: (ids: string[]) => void;
   clearCourses: () => void;
   setSemesterStartDate: (date: string) => void;
   dismissReport: () => void;
@@ -83,6 +86,9 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       maxPeriods: store.snapshot.maxPeriods,
       lastReport: store.snapshot.lastReport,
       replaceCourses: store.replaceCourses,
+      updateCourse: store.updateCourse,
+      addCourse: store.addCourse,
+      deleteCourses: store.deleteCourses,
       clearCourses: store.clearCourses,
       setSemesterStartDate: store.setSemesterStartDate,
       dismissReport: store.dismissReport,
@@ -97,6 +103,9 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       store.timetable,
       store.isHydrated,
       store.replaceCourses,
+      store.updateCourse,
+      store.addCourse,
+      store.deleteCourses,
       store.clearCourses,
       store.setSemesterStartDate,
       store.dismissReport,

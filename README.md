@@ -1,174 +1,200 @@
-# 课程表应用
+# 课程表
 
-当前版本面向 Web，支持导入固定模板的 `.docx` 课表，并按周次查看课程。
+一个基于 **Expo + React Native + TypeScript** 的课程表 App，主打 **Android** 移动端，支持从 `.docx` / `.doc` / `.xlsx` 及 `.ics`（日历导出）中解析课程，并按周次查看。
 
-## 当前格式
+## 主要功能
 
-- 第一列为节次，后七列依次为周一至周日。
-- 课程单元格需要包含课程代码、周次和节次；同一单元格中的多门课程会自动拆分。
-- Word 课表支持合并单元格（`rowspan`），导入后会保留课程所在星期和节次。
-- 课程数据保存在浏览器 `localStorage` 中。
+### 📥 课表导入
+
+- 从学校教务系统导出的课表（`.docx` / `.doc` / `.xlsx`）一键导入。
+- **导入预览**：解析完成后先列出全部课程供确认，可直接修正课名/地点/教师、取消勾选误识别项，确认后才写入课表。
+- **Position-first 识别器**：先定位表格结构再逐格读取，兼容正方、青果、安大等不同教务系统导出格式。
+- 同一单元格内的多门课程（换行 / 顿号分隔）自动拆分到对应的"星期 × 节次"。
+- 完整支持 Word 的 `rowspan` / `colspan` 合并单元格，跨页断表自动拼接。
+- **.ics 日历导入**：支持从 WakeUp 超级课程表等课程 App"导出到日历"生成的 `.ics` 文件。纯 JS 解析（无原生依赖，Expo Go 可用），自动处理重复规则（RRULE / COUNT / UNTIL）与单周多事件合并，周次按学期开始日期精确换算。
+- **解析报告**：导入后自动检测异常（缺失字段、格式问题），底部横幅提示，点击可展开详情；解析失败可一键**导出解析诊断**（含设备 IR 现场），便于反馈定位。
+- Expo Go 环境自动检测原生模块可用性，不可用时提前提示使用 Development Build。
+
+### 📅 周次课表视图
+
+- **自适应列宽**：宽屏保留 52px 列宽（"大学英语"等 4 字课名单行显示）；窄屏自动压缩列宽，让"时间列 + 周一~周日"**整周始终完整可见**——周日课程无需横向滚动即可直接查看。
+- **紧凑网格布局**：7 天列 + 时间列，课程卡片按实际节次绝对定位，支持非标准跨度（如"5-7 节"）。
+- **双向滑动切换周次**：一个手势同时驱动 X/Y 轴——纵向滚动课表（带惯性，`withDecay`），左右边缘拉动邻居周面板，松手按距离（30% 面板宽）或速度（550px/s）阈值决定是否切换。
+- 邻居周面板**预挂载**（左右两侧同时就绪），拖动 / 切换 / 回弹动画流畅无卡顿、无中途渲染。
+- **周次导航**：顶栏方向箭头 + 输入框直接跳转，自动跳转到当前周（启动时、导入后、回到前台时）。
+- **课程卡片编辑**：点击卡片查看详情，可编辑课名/地点/教师/周次/节次/颜色/备注；点击空格可直接添加课程；删除支持"本周 / 每周 / 整学期"三种范围确认。
+- 日期显示：表头显示每天对应的实际日期，"今天"高亮为"今天"文字；左上角显示当前月份。
+
+### ⏱️ 节次时间配置
+
+- 支持 1~13 节：1-2、3-4、5-6、7-8 组合节，以及 8~13 各单节（如 9 节、12 节）。
+- 点击左侧时间列的任意节次，弹窗编辑开始时间和课程时长（分钟），配置本地持久化。
+- 默认每节 45 分钟、间隔 5 分钟，从 08:00 开始自动计算。
+
+### 🎨 课程卡片
+
+- **8 色调色板**：根据课程名称哈希自动分配颜色，同一课程跨天共享色相，渲染稳定不闪烁；也可在编辑弹窗中手动指定颜色。
+- 卡片显示课程名 + 地点（底部锚定，长地址自动向上溢出）。
+- 点击卡片弹出详情：上课时间（节次范围 + 具体时间段）、地点、教师、周次（全周 / 单双周 / 指定周范围）、备注；详情内可直接编辑课程。
+- 深色模式使用统一卡片配色（单一材质色 + 同色系描边），保证对比度与整体观感。
+
+### 🌗 主题与设置
+
+- 浅色 / 深色 / 跟随系统三种模式，配置持久化。
+- 设置页：当前文件名、课程总数、一键清空数据。
+
+### 🛡️ 安全与本地存储
+
+- 课表和设置**仅保存在设备本地**，不上传任何服务器。
+- 存储加密（XOR + Base64 包装），避免明文落盘。
+- 顶层 `ErrorBoundary` 兜底解析/渲染异常。
+- v1 → v4 存储格式自动迁移，旧数据无感升级。
+
+## 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 框架 | Expo SDK 57.0.20、React Native 0.86.3、React 19.2.3 |
+| 语言 | TypeScript 6.0.3（strict 模式） |
+| 路由 | Expo Router（基于文件系统的路由 + typedRoutes） |
+| 状态 | React Hooks + AsyncStorage（v1→v4 存储迁移） |
+| 手势 | `react-native-gesture-handler` 2.32 + `react-native-reanimated` 4.5.1 + `react-native-worklets` 0.10.1 |
+| 文件解析 | `react-native-anydoc`（Rust，.docx/.doc/.xlsx → DocumentIR）+ position-first 识别器；`.ics` 日历文件纯 JS 解析（Expo Go 可用） |
+| 构建 | EAS Build（development / preview / production 三套 Profile） |
+| 测试 | Jest 29 + ts-jest，含 golden fixture 对比测试 |
+
+> 原 `mammoth`/`xlsx` JS 解析链已由 Rust 引擎 `react-native-anydoc` 取代（on-device 解析、无服务端）。
+
+## 课表文件格式
+
+使用学校教务系统导出的课表模板（正方 / 强智 / 教务自研等均已验证）：
+
+- 位置优先识别：表格中的星期 / 节次由**网格位置**推导，单元格文本（周次、教师、地点）只做补充。
+- 课程单元格通常包含：课程代码、课程名称、周次范围、地点、教师（缺失字段自动降级并提示）。
+- 同一单元格内的多门课程会被自动拆分到对应节次；跨页断表自动拼接。
+- 支持 Word 的合并单元格（`rowspan` / `colspan`）。
+- 支持 `.docx` / `.doc` / `.xlsx`，单文件不超过 5 MB。
+
+另外支持从课程表 App（WakeUp 超级课程表等）"导出到日历"生成的 `.ics` 文件：纯 JS 解析（无原生依赖），按学期开始日期换算周次，自动展开重复规则（RRULE / UNTIL / COUNT）并将同一课程的多条单周事件合并。
+
+## 环境要求
+
+- **Node.js 20+**、**npm**（或 `pnpm` / `yarn`）。
+- **Android 真机或模拟器**：Android 7.0 (API 24) 及以上。
+- 可选：EAS 账号（用于云端构建 APK）。
 
 ## 开发
 
 ```bash
+# 安装依赖
 npm install
-npm run web
-```
 
-打开 `http://localhost:8081`，从“导入课表”选择文件。
-
-## 手机运行
-
-手机端已经支持通过 Expo Document Picker 选择 `.docx` 文件，数据和设置会保存在手机本地。
-
-Windows PowerShell 如果提示禁止运行 `npm.ps1` 或 `npx.ps1`，请使用 `.cmd` 入口：
-
-```powershell
-npx.cmd expo start
-```
-
-手机安装 Expo Go 后，确保手机和电脑连接同一个 Wi-Fi，扫描终端中的二维码即可运行。
-
-需要生成 Android 安装包时：
-
-```powershell
-npm.cmd install -g eas-cli
-eas login
-eas build:configure
-eas build --platform android --profile preview
-```
-
-`preview` 用于生成测试 APK；发布正式版本时使用 `--profile production`。iOS 打包需要 Apple Developer 账号。
-
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
-
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-# 课程表
-
-一个基于 Expo、React Native 和 TypeScript 的课程表应用，支持 Web、Android 和 iOS。
-
-## 功能
-
-- 导入固定格式的 `.docx` 课表
-- 支持 Word 合并单元格和同一单元格中的多门课程
-- 按 18 周查看课程，并自动计算当前周次
-- 显示周一至周日、具体日期、节次时间、地点和教师信息
-- 可调整节次开始时间和课程时长
-- Web 使用 `localStorage`，移动端使用 `AsyncStorage` 保存课表和设置
-- 支持浅色、深色和跟随系统主题
-
-## 课表文件格式
-
-课表需要使用固定模板结构：
-
-- 第一列是节次，后七列依次是周一至周日
-- 课程内容需要包含课程代码、周次和节次
-- Word 文件支持 `rowspan` 合并单元格
-
-## 环境要求
-
-- Node.js 20 或更高版本
-- npm
-- Android 开发需要 Android Studio 或 Android 真机
-
-## 安装与运行
-
-```bash
-npm install
-npm run web
-```
-
-Web 默认地址为 `http://localhost:8081`。
-
-启动 Expo 开发服务器：
-
-```bash
+# 启动 Expo 开发服务器（同一 Wi-Fi 下手机用 Expo Go 扫码）
 npm start
+
+# 启动 Web 版本（仅供调试 UI）
+npm run web
 ```
 
-Windows PowerShell 如果禁止运行 `npm.ps1` 或 `npx.ps1`，使用 `.cmd` 入口：
+> ⚠️ **Windows PowerShell** 若提示禁止运行 `npm.ps1` / `npx.ps1`，请使用 `.cmd` 入口：
+> ```powershell
+> npm.cmd install
+> npx.cmd expo start -c
+> ```
 
-```powershell
-npm.cmd install
-npx.cmd expo start -c
-```
-
-使用手机运行时，安装 [Expo Go](https://expo.dev/go)，并让手机和电脑连接同一个 Wi-Fi，然后扫描终端中的二维码。
-
-## 检查代码
+### 代码检查
 
 ```bash
-npm run lint
-npx tsc --noEmit
-npx expo-doctor
+npm run lint          # ESLint（expo-config）
+npx tsc --noEmit      # TypeScript 类型检查
+npx expo-doctor       # Expo 配置健康检查
+npm test              # Jest 单元测试
 ```
 
-## 打包 Android
+## 打包 Android（EAS）
 
-安装并登录 EAS：
-
-```powershell
-npm.cmd install -g eas-cli
+```bash
+npm install -g eas-cli
 eas login
 eas build:configure
 ```
 
-生成可直接安装的测试 APK：
+生成可直接安装的内部测试 APK：
 
-```powershell
+```bash
 eas build --platform android --profile preview
 ```
 
-生成用于发布到 Google Play 的版本：
+生成 Google Play 上架包（AAB）：
 
-```powershell
+```bash
 eas build --platform android --profile production
 ```
 
-构建完成后，EAS 会提供下载地址。`preview` 配置用于内部测试，`production` 配置生成发布版本。
+| Profile | 用途 | 产物 |
+| --- | --- | --- |
+| `development` | 含 Dev Client 的调试包 | APK |
+| `preview` | 内部测试 / 体验 | Release APK |
+| `production` | Google Play 上架 | Release AAB |
+
+构建完成后 EAS 会提供下载链接，运行时通过 `runtimeVersion: appVersion` 关联 OTA 更新（`expo-updates`）。
 
 ## 项目结构
 
-```text
-src/
-├─ app/                 Expo Router 页面和 Tab 导航
-├─ components/          主题化 UI 组件
-├─ constants/           主题和布局常量
-├─ hooks/               React Hooks
-├─ lib/                 本地存储和文件解析
-├─ state/               课表和主题状态
-└─ types/               课表数据类型和转换函数
-assets/                 应用图标和启动图
-app.json                Expo 应用配置
-eas.json                EAS 构建配置
 ```
+src/
+├─ app/                  Expo Router 页面与 Tab 导航
+│  └─ (tabs)/            Tab 页：课表、导入、设置
+├─ components/           主题化 UI 组件（ErrorBoundary、themed-text/view、CourseEditModal、ImportPreview）
+├─ constants/            主题色、布局常量
+├─ hooks/                React Hooks（useTheme、useTimetablePanGesture）
+├─ lib/
+│  ├─ engine/            解析引擎：tableGrid、cellReader、recognizer、parseDiagnostics
+│  ├─ importers/         导入管线：timetable-importer、ics-parser、parsers
+│  ├─ reporting/         导入报告生成（CourseWarning）
+│  ├─ security.ts        文件校验与凭据清洗
+│  └─ storage.ts         加密存储封装
+├─ state/
+│  └─ timetable/         课表 Context + 存储 + v1→v4 迁移（index/types/storage/migrate）
+├─ types/
+│  └─ timetable.ts       课表数据类型与工具函数
+├─ __tests__/            Jest 单元测试（含 golden fixture 对比）
+└─ __mocks__/            模块 mock（react-native-anydoc、nitro-modules）
+app.json                 Expo 应用配置
+eas.json                 EAS 构建 Profile
+assets/                  图标、启动图
+```
+
+## 存储迁移
+
+应用经历了 v1 → v2 → v3 → v4 四次存储格式迭代，每次迁移通过 `src/state/timetable/migrate.ts` 自动处理：
+
+- **v3**：移除 `code` / `classes` 字段，`location` 从 `{ campus, building, room }` 合并为 `{ address }`。
+- **v4**：将旧的 `(weekPattern, specificWeeks)` 对合并为新的 `(weekList, isOddEven)` 对。
+
+旧数据自动升级，无需用户干预。
 
 ## 安全说明
 
-课表文件只在本地解析，不会主动上传到服务器。请不要导入来源不明的文件。仅支持 `.docx` 格式（已移除 `.xlsx` 以规避 `xlsx` 库已知的原型污染漏洞），建议只导入可信且规模合理的课表文件。
+本应用对不可信输入做了多层防护：
+
+- **文件类型校验**：仅接受 `.docx` / `.doc` / `.xlsx` / `.ics`，`.docx` 上限 5 MB、其余 10 MB；文件名/URI 协议白名单校验。
+- **文本清洗**：解析出的文本统一过滤控制字符、双向字符与零宽字符，并截断超长字段。
+- **解析隔离**：Rust 引擎在独立线程解析，恶意文档的 panic 会被引擎捕获为 `fallback` 状态而不是崩溃。
+- **存储加密**：写入 `AsyncStorage` 的课表 JSON 走 XOR + Base64 包装，避免明文落盘。
+- **错误隔离**：顶层 `ErrorBoundary` 兜底解析/渲染异常，避免崩溃导致数据丢失。
+
+⚠️ 请仅导入来源可信的课表文件。课表与设置均**仅保存在设备本地**，不会上传到任何服务器。
+
+## 路线图
+
+- [x] 导入预览与人工修正（确认后才落库）
+- [x] 解析诊断导出（识别失败时分享 IR 现场供反馈）
+- [ ] 课程提醒（上课前 N 分钟本地通知）
+- [ ] 多学期切换
+- [ ] 课表导出（图片 / PDF）
+- [ ] 桌面小部件（Android App Widget）
 
 ## 许可证
 
-本项目使用仓库中的 [LICENSE](LICENSE) 文件所声明的许可证。
+本项目使用 MIT 许可证，详见 [LICENSE](./LICENSE)。

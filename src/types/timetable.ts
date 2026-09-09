@@ -3,24 +3,10 @@ export enum TimeSlot { ONE_TWO='1-2', THREE_FOUR='3-4', FIVE_SIX='5-6', SEVEN_EI
 
 // Backward-compat alias for data persisted before 11/12/13 were split.
 // Old '11-13' entries are read-only and coerced to ELEVEN on hydrate.
-export const LEGACY_TIME_SLOT_KEYS = ['11-13'] as const;
-export type LegacyTimeSlotKey = typeof LEGACY_TIME_SLOT_KEYS[number];
-export const LEGACY_TIME_SLOT_META: Record<LegacyTimeSlotKey, {label: string; start: number; end: number; duration: number}> = {
+type LegacyTimeSlotKey = '11-13';
+const LEGACY_TIME_SLOT_META: Record<LegacyTimeSlotKey, {label: string; start: number; end: number; duration: number}> = {
   '11-13': {label: '11-13 节', start: 11, end: 13, duration: 3},
 };
-
-export const TIME_SLOT_ORDER: TimeSlot[] = [
-  TimeSlot.ONE_TWO,
-  TimeSlot.THREE_FOUR,
-  TimeSlot.FIVE_SIX,
-  TimeSlot.SEVEN_EIGHT,
-  TimeSlot.EIGHT,
-  TimeSlot.NINE,
-  TimeSlot.TEN,
-  TimeSlot.ELEVEN,
-  TimeSlot.TWELVE,
-  TimeSlot.THIRTEEN,
-];
 
 export const TIME_SLOT_META: Record<TimeSlot, {label: string; start: number; end: number; duration: number}> = {
   '1-2': {label: '1-2 节', start: 1, end: 2, duration: 2},
@@ -34,8 +20,6 @@ export const TIME_SLOT_META: Record<TimeSlot, {label: string; start: number; end
   '12': {label: '12 节', start: 12, end: 12, duration: 1},
   '13': {label: '13 节', start: 13, end: 13, duration: 1},
 };
-
-export const CLASS_PERIODS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 export const WEEK_DAYS = [WeekDay.MONDAY, WeekDay.TUESDAY, WeekDay.WEDNESDAY, WeekDay.THURSDAY, WeekDay.FRIDAY, WeekDay.SATURDAY, WeekDay.SUNDAY];
 export const DEFAULT_SEMESTER_WEEKS = 18;
@@ -61,6 +45,8 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
       classes?: unknown;
       startPeriod?: unknown;
       endPeriod?: unknown;
+      note?: unknown;
+      colorOverride?: unknown;
       // Legacy (pre-v4) week shape. Persisted JSON may still carry these.
       weekPattern?: unknown;
       specificWeeks?: unknown;
@@ -131,6 +117,16 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
     })();
     const cleanAddress = address === '未填写' ? '' : address;
 
+    // v4.1 user-edit fields: note + color override. Optional in the
+    // persisted shape — absent on pre-edit payloads, so legacy data loads
+    // untouched.
+    const note = typeof c.note === 'string' ? c.note : undefined;
+    const colorOverride =
+      typeof (c as { colorOverride?: unknown }).colorOverride === 'string' &&
+      /^#[0-9A-Fa-f]{6}$/.test(String((c as { colorOverride?: unknown }).colorOverride))
+      ? (c as { colorOverride: string }).colorOverride
+      : undefined;
+
     out.push({
       id: String(c.id ?? ''),
       name: String(c.name ?? ''),
@@ -143,6 +139,8 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
       teacher: cleanTeacher,
       weekList,
       isOddEven,
+      note,
+      colorOverride,
     });
   }
   return out;
@@ -156,15 +154,18 @@ export function getTimeSlotMeta(slot: string): {label: string; start: number; en
   return null;
 }
 
-/** Compute semester weeks from imported courses (max week number, fallback to default) */
+/** Compute semester weeks from imported courses: the max week any course
+ * actually meets in, clamped to at least the default so an 18-week grid
+ * is still shown when every course ends early. Explicit week data wins
+ * over the default; the default only applies when courses have none. */
 export function computeSemesterWeeks(courses: ScheduledCourse[]): number {
-  let max = DEFAULT_SEMESTER_WEEKS;
+  let max = 0;
   for (const course of courses) {
     for (const w of course.weekList ?? []) {
       if (w > max) max = w;
     }
   }
-  return max;
+  return max > 0 ? max : DEFAULT_SEMESTER_WEEKS;
 }
 
 /** Compute max periods per day from imported courses (max end period) */
@@ -223,9 +224,15 @@ export interface ScheduledCourse {
   /** `endPeriod - startPeriod + 1`. Kept as a convenience field for the
    * renderer; always equals `endPeriod - startPeriod + 1`. */
   duration: number;
+  /** User note (course-edit modal). Empty string = none; the detail modal
+   * hides the row entirely when empty. */
+  note?: string;
+  /** User-picked card color (#RRGGBB from COURSE_PALETTE). When absent the
+   * renderer falls back to the name-hash hue. */
+  colorOverride?: string;
 }
 export type TimetableData = { [day in WeekDay]: ScheduledCourse[] };
-export function createEmptyTimetable(): TimetableData {
+function createEmptyTimetable(): TimetableData {
   return WEEK_DAYS.reduce((result, day) => { result[day] = []; return result; }, {} as TimetableData);
 }
 export function coursesToTimetable(courses: ScheduledCourse[]): TimetableData {

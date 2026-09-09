@@ -3,7 +3,7 @@ import { useColorScheme } from 'react-native';
 import { Colors } from '@/constants/theme';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
 
-export type ThemeMode = 'light' | 'dark' | 'auto';
+type ThemeMode = 'light' | 'dark' | 'auto';
 
 const THEME_KEY = 'course-table-app.theme';
 

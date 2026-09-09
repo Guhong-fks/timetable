@@ -11,24 +11,55 @@
 //   1. Loading the engine lazily (dynamic `import()` inside `parseDocxFile`)
 //   2. Catching the Nitro `ModuleNotFoundError` and translating it into a
 //      user-friendly Chinese message that points at Dev Client / EAS Build.
+//
+// Recognition itself lives in src/lib/engine/ (position-first recognizer):
+// this file is only the bridge — file validation, anydoc invocation, IR
+// extraction, and error translation.
 // =============================================================================
 
-// Type-only import is safe: it produces no runtime reference, so Nitro is
-// not loaded at boot. The value itself is fetched via `await import(...)`.
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { File } from 'expo-file-system';
+import {
+  ScheduledCourse,
+  TimetableData,
+  coursesToTimetable,
+} from '@/types/timetable';
+import { ParseReport } from '@/lib/reporting/ParseReport';
+import type { ReportWarning } from '@/lib/reporting/types';
+// Static import is safe here: expo-file-system has no nitro-module
+// load-at-boot side effect (unlike react-native-anydoc, which must stay
+// dynamic). Static keeps Metro from splitting it into an async chunk.
+import {
+  validateFile,
+  validateBufferSize,
+} from '../security';
+import { recognizeCourses, type IrTableBlock } from '@/lib/engine/recognizer';
+import { collectParseDiagnostics, serializeDiagnostics } from '@/lib/engine/parseDiagnostics';
+import { parseIcsTimetable } from '@/lib/importers/ics-parser';
+
+// Type-only reference to react-native-anydoc: produces no runtime import, so
+// Nitro is not loaded at boot. The runtime value is fetched via
+// `await import('react-native-anydoc')` inside parseDocxFile.
 type AnydocModule = typeof import('react-native-anydoc');
+
+// =============================================================================
+// Public types
+// =============================================================================
+
+interface ImportResult {
+  courses: ScheduledCourse[];
+  timetable: TimetableData;
+  /**
+   * Structured parse report — single source of truth for warnings.
+   * Lives next to the imported courses so the UI can show a
+   * "查看解析详情" entry alongside the timetable.
+   */
+  report: { warnings: ReportWarning[]; suggestions: string[] };
+}
 
 /**
  * Synchronous capability probe used by callers that want to gate the
  * "选择文件" button on whether the parser engine is reachable. Returns
  * false on Expo Go (no Nitro binary), true on a Dev Client / EAS Build.
- *
- * Implementation: react-native-anydoc's first transitive import pulls in
- * `react-native-nitro-modules/turbomodule/NativeNitroModules`, which calls
- * `TurboModuleRegistry.getEnforcing('NitroModules')`. If we just *touch*
- * the module from JS, that call fires synchronously and either returns a
- * proxy or throws `ModuleNotFoundError`. We use a side-channel that does
- * not crash on the missing case.
  */
 export function isNativeBridgeAvailable(): boolean {
   try {
@@ -50,50 +81,13 @@ async function loadAnydoc(): Promise<AnydocModule> {
   return await import('react-native-anydoc');
 }
 
-import {
-  ScheduledCourse,
-  TimetableData,
-  WeekDay,
-  coursesToTimetable,
-} from '@/types/timetable';
-import { ParseReport } from '@/lib/reporting/ParseReport';
-import type { ReportWarning } from '@/lib/reporting/types';
-
 // =============================================================================
-// DocumentIR type aliases
-// -----------------------------------------------------------------------------
-// react-native-anydoc exposes `ir: unknown`; the structural shape is documented
-// (pages -> blocks -> table block with rows: TableCell[][]). We declare the
-// narrow slice we actually walk; the rest stays `unknown` so a runtime
-// mismatch surfaces loudly instead of silently passing through.
+// IR shapes (narrow slice of anydoc's DocumentIR)
 // =============================================================================
-
-interface IrRun {
-  text?: string;
-  bold?: boolean;
-  italic?: boolean;
-}
-
-interface IrTableCell {
-  paragraphs?: IrRun[][];
-  rowSpan?: number;
-  colSpan?: number;
-  background?: string;
-}
-
-type IrTableRow = IrTableCell[];
-
-interface IrTableBlock {
-  type: 'table';
-  columnWidths?: number[];
-  rows?: IrTableRow[];
-}
 
 interface IrBlock {
   type: string;
-  // Discriminated union: only `table` carries rows. Everything else is opaque.
-  rows?: IrTableRow[];
-  columnWidths?: number[];
+  rows?: unknown[];
 }
 
 interface IrPage {
@@ -108,38 +102,15 @@ interface DocumentIR {
   pages?: IrPage[];
 }
 
-import {
-  validateFile,
-  validateBufferSize,
-} from '../security';
-import {
-  MIN_PERIOD,
-  MAX_PERIOD,
-  type CourseWarning,
-} from './parsers';
-import {
-  extractBlocksFromCell,
-  normaliseBlock,
-} from './blocks';
-import { createParserChain } from '@/lib/parsers/ParserChain';
-import {
-  selectBestTable,
-  type ScorableTable,
-} from '@/lib/utils/tableScorer';
-
-// =============================================================================
-// Public types
-// =============================================================================
-
-export interface ImportResult {
-  courses: ScheduledCourse[];
-  timetable: TimetableData;
-  /**
-   * Structured parse report — single source of truth for warnings.
-   * Lives next to the imported courses so the UI can show a
-   * "查看解析详情" entry alongside the timetable.
-   */
-  report: { warnings: ReportWarning[]; suggestions: string[] };
+function collectTables(ir: DocumentIR): IrTableBlock[] {
+  const tables: IrTableBlock[] = [];
+  for (const page of ir.pages ?? []) {
+    for (const block of page.blocks ?? []) {
+      if (block.type !== 'table') continue;
+      tables.push(block as IrTableBlock);
+    }
+  }
+  return tables;
 }
 
 // =============================================================================
@@ -164,8 +135,9 @@ function countIrCells(ir: DocumentIR): number {
   for (const page of ir.pages ?? []) {
     for (const block of page.blocks ?? []) {
       if (block.type !== 'table') continue;
-      for (const row of block.rows ?? []) {
-        for (const _cell of row ?? []) total++;
+      const rows = (block.rows ?? []) as unknown[][];
+      for (const row of rows) {
+        total += Array.isArray(row) ? row.length : 1;
       }
     }
   }
@@ -184,327 +156,39 @@ function validateIrComplexity(ir: DocumentIR): { valid: boolean; error?: string 
 }
 
 // =============================================================================
-// Grid model (in-memory)
-// -----------------------------------------------------------------------------
-// Kept identical to the pre-refactor shape so the renderer (`app/(tabs)/
-// index.tsx`) and downstream parsers don't notice the engine swap. Each
-// physical cell becomes ONE GridCell with row/col/span metadata; logical
-// duplicates from rowspan/colspan are absent here, the renderer filters by
-// `isAnchor`.
-// =============================================================================
-
-interface GridCell {
-  text: string;
-  rowIndex: number;
-  colIndex: number;
-  rowSpan: number;
-  colSpan: number;
-  isAnchor: boolean;
-}
-
-const DAYS: WeekDay[] = [
-  WeekDay.MONDAY,
-  WeekDay.TUESDAY,
-  WeekDay.WEDNESDAY,
-  WeekDay.THURSDAY,
-  WeekDay.FRIDAY,
-  WeekDay.SATURDAY,
-  WeekDay.SUNDAY,
-];
-
-const DAY_HEADER_KEYWORDS: readonly { day: WeekDay; keywords: string[] }[] = [
-  { day: WeekDay.MONDAY, keywords: ['周一', '星期一', 'Monday', 'Mon', 'MON'] },
-  { day: WeekDay.TUESDAY, keywords: ['周二', '星期二', 'Tuesday', 'Tue', 'TUE'] },
-  { day: WeekDay.WEDNESDAY, keywords: ['周三', '星期三', 'Wednesday', 'Wed', 'WED'] },
-  { day: WeekDay.THURSDAY, keywords: ['周四', '星期四', 'Thursday', 'Thu', 'THU'] },
-  { day: WeekDay.FRIDAY, keywords: ['周五', '星期五', 'Friday', 'Fri', 'FRI'] },
-  { day: WeekDay.SATURDAY, keywords: ['周六', '星期六', 'Saturday', 'Sat', 'SAT'] },
-  { day: WeekDay.SUNDAY, keywords: ['周日', '星期日', 'Sunday', 'Sun', 'SUN'] },
-];
-
-// =============================================================================
-// IR → plain text
-// -----------------------------------------------------------------------------
-// The IR runs nest as Run[][], and anydoc can attach formatting/asset
-// fragments. We strip to text only — the existing regex-driven parser does
-// the rest.
-// =============================================================================
-
-function extractTextFromCell(cell: IrTableCell): string {
-  const paragraphs = cell.paragraphs ?? [];
-  const lines: string[] = [];
-  for (const paraRuns of paragraphs) {
-    if (!Array.isArray(paraRuns)) continue;
-    const text = paraRuns
-      .map((run) => (typeof run?.text === 'string' ? run.text : ''))
-      .join('')
-      .trim();
-    if (text) lines.push(text);
-  }
-  return lines.length ? lines.join('\n') : '';
-}
-
-// =============================================================================
-// IR table → GridCell[]
-// -----------------------------------------------------------------------------
-// anydoc returns ONE entry per PHYSICAL cell (anchor only), already with
-// correct rowspan/colspan. No `occupied[][]` bookkeeping needed — the Rust
-// engine resolves the layout upstream.
-// =============================================================================
-
-function mapIrTableToGrid(table: IrTableBlock): GridCell[] {
-  const cells: GridCell[] = [];
-  const rows: IrTableRow[] = table.rows ?? [];
-  rows.forEach((row, rowIndex) => {
-    const rowCells: IrTableCell[] = row ?? [];
-    rowCells.forEach((cell, colIndex) => {
-      cells.push({
-        text: extractTextFromCell(cell),
-        rowIndex,
-        colIndex,
-        rowSpan: Math.max(1, Number(cell.rowSpan ?? 1)),
-        colSpan: Math.max(1, Number(cell.colSpan ?? 1)),
-        isAnchor: true,
-      });
-    });
-  });
-  return cells;
-}
-
-// =============================================================================
-// First table block in the IR
-// -----------------------------------------------------------------------------
-// If the document has multiple tables, pick the one that looks most like a
-// course schedule via a keyword + structure heuristic. Falls back to the
-// first table when nothing scores high enough — the warning is surfaced
-// in the import report so the UI can route the user to a manual picker.
-// =============================================================================
-
-/**
- * Adapt an IR table block into the structurally-typed shape
- * `ScorableTable` requires. We materialise each cell's plain text once so
- * the scorer doesn't have to know about paragraphs/runs.
- */
-function adaptToScorable(table: IrTableBlock): ScorableTable {
-  const rows: { text: string }[][] = [];
-  for (const row of table.rows ?? []) {
-    const cells: { text: string }[] = [];
-    for (const cell of row ?? []) {
-      cells.push({ text: extractTextFromCell(cell) });
-    }
-    rows.push(cells);
-  }
-  return { rows };
-}
-
-function selectBestTableBlock(tables: IrTableBlock[]): {
-  selected: IrTableBlock;
-  warnings: CourseWarning[];
-} {
-  const warnings: CourseWarning[] = [];
-
-  if (tables.length === 0) {
-    // Caller should have guarded; defensive throw rather than crashing.
-    throw new Error('Word 文件没有找到课表。');
-  }
-
-  // Adapt IR shapes into the structural `ScorableTable` the pure scorer
-    // expects. The IR's richer paragraph/run metadata is discarded here —
-    // the scorer only cares about flattened cell text.
-    const scorable = tables.map(adaptToScorable);
-    const pick = selectBestTable(scorable, 5);
-    // Guarded above (tables.length === 0 throws), so `pick.selected` is non-null.
-    const bestScorable = pick.selected!;
-
-    // Map the scorable index back to the original IrTableBlock. Indices
-    // align 1:1 because `adaptToScorable` is a pure shape transform.
-    const bestIndex = scorable.indexOf(bestScorable);
-    const selected = tables[bestIndex];
-
-    if (pick.lowConfidence) {
-      // Nothing confidently looked like a timetable — surface a warning so
-      // the UI can offer a manual picker.
-      warnings.push({
-        category: 'header',
-        severity: 'info',
-        message: '未明确识别课表，默认取最匹配的表格，建议手动确认',
-      });
-    }
-    // Silence "score is computed but unused" — kept for future telemetry.
-    void pick.score;
-
-    return { selected, warnings };
-  }
-
-function findFirstTableBlock(
-  ir: DocumentIR,
-): { table: IrTableBlock; warnings: CourseWarning[] } {
-  const tables: IrTableBlock[] = [];
-  for (const page of ir.pages ?? []) {
-    for (const block of page.blocks ?? []) {
-      if (block.type !== 'table') continue;
-      tables.push(block as IrTableBlock);
-    }
-  }
-
-  if (tables.length === 0) {
-    throw new Error('Word 文件没有找到课表。');
-  }
-
-  const { selected, warnings } = selectBestTableBlock(tables);
-
-  if (tables.length > 1) {
-    warnings.push({
-      category: 'header',
-      severity: 'info',
-      message: `检测到 ${tables.length} 张表格，已选择最匹配的课表`,
-    });
-  }
-  return { table: selected, warnings };
-}
-
-// =============================================================================
-// detectPeriodColumn — three-stage heuristic (unchanged behaviour)
-// -----------------------------------------------------------------------------
-//   (A) Header-row hint: 节次 / Period / Class → look at the column to its
-//       right in row 0/1.
-//   (B) Frequency scan across ALL columns: pick the column whose cells are
-//       most often integers in [1, MAX_PERIOD]. Ties broken by leftmost.
-//   (C) Fallback: periodCol = 0 with a warning.
-// =============================================================================
-
-const PERIOD_HEADER_KEYWORDS: readonly string[] = ['节次', 'Period', 'period', 'Class', '节数'];
-
-interface PeriodColumnDetection {
-  periodCol: number;
-  /** Day columns inferred from the header. Length 0 = no header hint found. */
-  dayColumns: WeekDay[];
-  warnings: CourseWarning[];
-}
-
-function detectPeriodColumn(cells: GridCell[]): PeriodColumnDetection {
-  const warnings: CourseWarning[] = [];
-
-  // Index cells by row for header inspection.
-  const byRow = new Map<number, GridCell[]>();
-  for (const c of cells) {
-    if (!byRow.has(c.rowIndex)) byRow.set(c.rowIndex, []);
-    byRow.get(c.rowIndex)!.push(c);
-  }
-  // Stable order within row.
-  for (const arr of byRow.values()) arr.sort((a, b) => a.colIndex - b.colIndex);
-
-  // -------- Stage A: header-row hint --------
-  const headerRow = byRow.get(0) ?? [];
-  const dayColumns: WeekDay[] = [];
-
-  for (const cell of headerRow) {
-    const text = cell.text.trim();
-    const day = DAY_HEADER_KEYWORDS.find((entry) =>
-      entry.keywords.some((kw) => text === kw || text.includes(kw)),
-    );
-    if (day) {
-      const idx = dayColumns.length;
-      dayColumns.push(day.day);
-      // Sanity: we expect 0..6 days in order. Emit a warning if duplicates
-      // or out-of-order days appear.
-      if (idx !== DAYS.indexOf(day.day)) {
-        warnings.push({
-          category: 'header',
-          severity: 'info',
-          message: `表头星期顺序异常: 期望 ${DAYS[idx]} 但识别到 ${day.day}`,
-          ref: { rowIndex: cell.rowIndex, colIndex: cell.colIndex },
-        });
-      }
-    }
-  }
-
-  // Try to find a "节次 / Period" header cell to pin down periodCol.
-  let periodCol = -1;
-  for (const cell of headerRow) {
-    if (PERIOD_HEADER_KEYWORDS.some((kw) => cell.text.trim() === kw)) {
-      periodCol = cell.colIndex;
-      break;
-    }
-  }
-
-  // -------- Stage B: frequency scan (fallback when A didn't find periodCol) --------
-  if (periodCol < 0) {
-    const counts = new Map<number, number>();
-    for (const cell of cells) {
-      if (!cell.isAnchor) continue;
-      const text = cell.text.trim();
-      if (!/^\d+$/.test(text)) continue;
-      const n = Number(text);
-      if (n < MIN_PERIOD || n > MAX_PERIOD) continue;
-      counts.set(cell.colIndex, (counts.get(cell.colIndex) ?? 0) + 1);
-    }
-    let bestCount = 0;
-    for (const [col, count] of counts) {
-      if (count > bestCount) {
-        periodCol = col;
-        bestCount = count;
-      }
-    }
-  }
-
-  // -------- Stage C: hard fallback --------
-  if (periodCol < 0) {
-    periodCol = 0;
-    warnings.push({
-      category: 'header',
-      severity: 'warning',
-      message: '未识别到节次列，已使用默认列 0',
-    });
-  }
-
-  // Day columns: prefer header-detected list. If absent, assume the 7 cols
-  // immediately to the right of periodCol are Monday..Sunday.
-  if (dayColumns.length === 0) {
-    for (let i = 0; i < DAYS.length; i++) dayColumns.push(DAYS[i]);
-  }
-
-  return { periodCol, dayColumns, warnings };
-}
-
-// =============================================================================
 // parseDocxFile — engine entry point
 // -----------------------------------------------------------------------------
-// Calls react-native-anydoc and forwards its result to the IR-aware pipeline.
-// Replaces the previous mammoth → HTML → htmlparser2 chain. The downstream
-// shape (GridCell + extractBlocksFromCell + normaliseBlock) is unchanged.
+// Calls react-native-anydoc, then hands EVERY table in the document to the
+// position-first recognizer (src/lib/engine/recognizer.ts). Cross-page table
+// continuation (正方 exports split one timetable over two pages) is handled
+// inside the recognizer via mergeTableSegments.
 // =============================================================================
 
-export async function parseDocxFile(buffer: ArrayBuffer): Promise<ImportResult> {
+async function parseDocxFile(buffer: ArrayBuffer): Promise<ImportResult> {
   // Single source of truth: clear the report singleton at the start of
   // every import so previous runs don't leak into the current one.
   const report = ParseReport.getInstance();
   report.clear();
 
-  // Build the parser chain once per import — reads the user regex from
-  // AsyncStorage (with timeout + web fallback) and freezes it in memory.
-  // All `extractBlocksFromCell` calls below then run synchronously.
-  const parserChain = await createParserChain();
-
   let result: Awaited<ReturnType<AnydocModule['convertDocumentToIr']>>;
-    try {
-      const anydoc = await loadAnydoc();
-      result = await anydoc.convertDocumentToIr(buffer);
-    } catch (err) {
-      // Two failure modes get the same translation:
-      //   (a) Nitro TurboModule is missing — Expo Go, no native binary.
-      //   (b) The native module is registered but a panic happens inside it.
-      // Both surface the same user-facing guidance (build a Dev Client).
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn('[parseDocxFile] convertDocumentToIr unavailable:', err);
-      if (/NitroModules|TurboModule|Module not found|Native module/i.test(msg)) {
-        throw new Error(
-          '当前运行环境不支持本地解析（Expo Go 不含原生模块）。请使用 Development Build 或 EAS Build 后再试',
-          { cause: err },
-        );
-      }
-      throw new Error('本地解析模块不可用，请稍后重试', { cause: err });
+  try {
+    const anydoc = await loadAnydoc();
+    result = await anydoc.convertDocumentToIr(buffer);
+  } catch (err) {
+    // Two failure modes get the same translation:
+    //   (a) Nitro TurboModule is missing — Expo Go, no native binary.
+    //   (b) The native module is registered but a panic happens inside it.
+    // Both surface the same user-facing guidance (build a Dev Client).
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[parseDocxFile] convertDocumentToIr unavailable:', err);
+    if (/NitroModules|TurboModule|Module not found|Native module/i.test(msg)) {
+      throw new Error(
+        '当前运行环境不支持本地解析（Expo Go 不含原生模块）。请使用 Development Build 或 EAS Build 后再试',
+        { cause: err },
+      );
     }
+    throw new Error('本地解析模块不可用，请稍后重试', { cause: err });
+  }
 
   if (result.status !== 'ok') {
     // Document-level failure: corrupt, encrypted, or unsupported.
@@ -517,88 +201,47 @@ export async function parseDocxFile(buffer: ArrayBuffer): Promise<ImportResult> 
     throw new Error(complexity.error);
   }
 
-  const { table, warnings: tableWarnings } = findFirstTableBlock(result.ir as DocumentIR);
-  pushTableWarnings(report, tableWarnings);
-
-  const cells = mapIrTableToGrid(table);
-
-  const detection = detectPeriodColumn(cells);
-  pushTableWarnings(report, detection.warnings);
-
-  const { periodCol, dayColumns } = detection;
-  const courses: ScheduledCourse[] = [];
-
-  // Group cells by row for sequential walk.
-  const byRow = new Map<number, GridCell[]>();
-  for (const c of cells) {
-    if (!byRow.has(c.rowIndex)) byRow.set(c.rowIndex, []);
-    byRow.get(c.rowIndex)!.push(c);
+  const tables = collectTables(result.ir as DocumentIR);
+  if (tables.length === 0) {
+    throw new Error('Word 文件没有找到课表。');
   }
-  for (const arr of byRow.values()) arr.sort((a, b) => a.colIndex - b.colIndex);
-
-  // Local accumulator: normaliseBlock pushes CourseWarning entries here
-  // (preserving the existing per-field warning pipeline + unit tests).
-  // They get drained into the singleton right before we build the result.
-  const localWarnings: CourseWarning[] = [];
-
-  for (const [rowIndex, rowCells] of byRow) {
-    // Skip header row (row 0) — periodCol cell must contain a number here,
-    // but the data rows also need it.
-    if (rowIndex === 0) continue;
-
-    // Validate this row's period cell.
-    const periodCell = rowCells.find((c) => c.colIndex === periodCol);
-    if (!periodCell) continue;
-    const periodText = periodCell.text.trim();
-    if (!/^\d+$/.test(periodText)) continue;
-    const period = Number(periodText);
-    if (period < MIN_PERIOD || period > MAX_PERIOD) continue;
-
-    // Walk the day columns.
-    for (let dayIdx = 0; dayIdx < dayColumns.length; dayIdx++) {
-      const day = dayColumns[dayIdx];
-      const colIndex = periodCol + 1 + dayIdx;
-      const dayCell = rowCells.find((c) => c.colIndex === colIndex);
-      if (!dayCell) continue;
-
-      // Only parse anchor cells; logical duplicates are skipped here.
-      if (!dayCell.isAnchor) continue;
-
-      const blocks = extractBlocksFromCell(dayCell.text, parserChain);
-      for (const block of blocks) {
-        const course = normaliseBlock(block, {
-          day,
-          rowIndex,
-          colIndex,
-          warnings: localWarnings,
-        });
-        if (course) courses.push(course);
-      }
-    }
+  if (tables.length > 1) {
+    report.addWarningFromParts(
+      'header',
+      'info',
+      `检测到 ${tables.length} 张表格，已按章节合并/逐表识别`,
+    );
   }
 
+  const courses = recognizeCourses(tables, report);
   if (!courses.length) {
-    throw new Error('未识别到课程，请确认文件是固定课表模板。');
+    // Attach the accumulated diagnostics to the error so the UI (and the
+    // user) can see WHY nothing was recognized instead of a bare message.
+    // The raw IR rides along for the device-side debugging workflow.
+    throw new ImportDiagnosticsError(
+      '未识别到课程，请确认文件是课表文件。',
+      report.snapshot(),
+      serializeDiagnostics(collectParseDiagnostics(tables, [], 'unknown')),
+    );
   }
 
-  // Drain the local accumulator into the singleton. Keeping two writers
-  // active in the same function would invite ordering bugs; this single
-  // handoff at the end guarantees the report is the only authoritative
-  // collection point.
-  for (const w of localWarnings) {
-    report.addWarning({ ...w });
-  }
   return { courses, timetable: coursesToTimetable(courses), report: report.snapshot() };
 }
 
-/**
- * Move a batch of `CourseWarning` entries (the existing parser type) into
- * the `ReportWarning` shape the singleton expects. Defined here rather
- * than inside `ParseReport` to keep the report module dependency-free.
- */
-function pushTableWarnings(report: ParseReport, items: CourseWarning[]): void {
-  for (const w of items) {
-    report.addWarning({ ...w });
+/** Error carrying the parse report (and IR diagnostics) on total failure. */
+export class ImportDiagnosticsError extends Error {
+  readonly report: { warnings: ReportWarning[]; suggestions: string[] };
+  /** Serialized IR/grid/layout dump for the share-debug workflow. */
+  readonly diagnostics?: string;
+  constructor(
+    message: string,
+    report: { warnings: ReportWarning[]; suggestions: string[] },
+    diagnostics?: string,
+  ) {
+    super(message);
+    this.name = 'ImportDiagnosticsError';
+    this.report = report;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -620,15 +263,11 @@ function mapFallbackReason(reason: string | undefined): string {
 }
 
 // =============================================================================
-// XLSX (still unsupported in P0)
-// =============================================================================
-
-export function parseXlsxTimetable(buffer: ArrayBuffer): ImportResult {
-  throw new Error('暂不支持 .xlsx 格式，请转换为 .docx 格式导入');
-}
-
-// =============================================================================
 // parseTimetableFile — file-level entry point
+// -----------------------------------------------------------------------------
+// Every accepted extension routes through the SAME anydoc → recognizer
+// pipeline: the Rust engine parses .docx/.doc/.xlsx natively and the
+// position-first recognizer consumes the resulting DocumentIR unchanged.
 // =============================================================================
 
 type TimetableFile =
@@ -644,14 +283,78 @@ export async function parseTimetableFile(file: TimetableFile): Promise<ImportRes
   const sizeValidation = validateBufferSize(buffer);
   if (!sizeValidation.valid) throw new Error(sizeValidation.error);
 
-  if (file.name.toLowerCase().endsWith('.docx')) return parseDocxFile(buffer);
-  if (file.name.toLowerCase().endsWith('.xlsx')) {
-    throw new Error('暂不支持 .xlsx 格式，请转换为 .docx 格式导入');
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.ics')) {
+    return parseIcsFile(buffer);
   }
-  throw new Error('暂仅支持 .docx 文件。');
+  if (lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.xlsx')) {
+    return parseDocxFile(buffer);
+  }
+  throw new Error('暂支持 .docx / .doc / .xlsx / .ics 课表文件。');
+}
+
+// =============================================================================
+// parseIcsFile — calendar (.ics) entry point
+// -----------------------------------------------------------------------------
+// 纯 JS 解析（src/lib/importers/ics-parser.ts），不走 anydoc / Nitro，在
+// Expo Go 里也能用。周次换算依赖学期开始日期（week-1 Monday）：没设置时
+// 全部课程退化为 1..18 周并附明确提示，让用户填好日期再导一次。
+// =============================================================================
+
+function decodeIcsText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  // BOM sniffing first; then heuristic: ICS with Chinese content is UTF-8 in
+  // practice (RFC 5545 default), but Windows 导出可能带 GBK — 转 GBK 需要
+  // 依赖（TextDecoder('gbk') 在 Hermes 上不可用），此处按 UTF-8 严格解码，
+  // 失败时给出明确错误而不是乱码入库。
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(buffer.slice(3));
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+}
+
+async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
+  const report = ParseReport.getInstance();
+  report.clear();
+
+  let text: string;
+  try {
+    text = decodeIcsText(buffer);
+  } catch {
+    throw new Error('文件编码无法识别，请用 UTF-8 编码重新导出 .ics 文件');
+  }
+
+  const { courses, warnings } = parseIcsTimetable(text, semesterStartForIcs());
+
+  for (const w of warnings) {
+    report.addWarningFromParts(w.category, w.severity, w.message, undefined, w.raw);
+  }
+
+  if (!courses.length) {
+    const firstError = warnings.find((w) => w.severity === 'error');
+    throw new Error(firstError?.message ?? '未能从该日历文件识别出课程');
+  }
+
+  return { courses, timetable: coursesToTimetable(courses), report: report.snapshot() };
+}
+
+/**
+ * 学期开始日期对 ICS 是硬依赖（week-1 Monday 换算周次）。当前 import.tsx
+ * 把它存在组件状态里，未暴露到 importer 层；导入页在调用 parseTimetableFile
+ * 前通过 setIcsSemesterStartDate 注入（见 import.tsx）。
+ */
+let icsSemesterStartDate: string | undefined;
+export function setIcsSemesterStartDate(date: string | undefined): void {
+  icsSemesterStartDate = date && date.trim() ? date.trim() : undefined;
+}
+function semesterStartForIcs(): string | undefined {
+  return icsSemesterStartDate;
 }
 
 async function readNativeFile(file: { name: string; size?: number; uri: string }): Promise<ArrayBuffer> {
-  const response = await fetch(file.uri);
-  return response.arrayBuffer();
+  // fetch() cannot read `content://` URIs (OkHttp casts to java.net.URL and
+  // throws MalformedURLException). Use expo-file-system's File API instead —
+  // it understands content:// and file:// on Android.
+  const f = new File(file.uri);
+  return await f.arrayBuffer();
 }

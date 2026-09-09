@@ -8,25 +8,18 @@ import {
   parseWeekPattern,
   tokenizeWeekSpec,
 } from '@/lib/importers/parsers';
-import { createBuiltInParserChain } from '@/lib/parsers/ParserChain';
 
-// The original university course-code regex moved into DefaultParser.ts.
-// Define it locally so this regression suite still pins the canonical
-// shape that the default strategy must continue to recognise.
+// The old ParserChain (Default/Generic/Fallback code parsers) was removed with
+// the position-first recognizer. The canonical university code shape is kept
+// here as a regression pin for documentation purposes.
 const UNIVERSITY_CODE_PATTERN = /(\d{9})-([A-Z]{2}\d{5}\.\d{3})/;
 
-describe('DefaultCodeParser (university course code)', () => {
-  const chain = createBuiltInParserChain();
-
-  it('matches the documented format via the chain', () => {
-    const r = chain.parse('202420241-CS10101.001');
-    expect(r.code).toBe('202420241-CS10101.001');
-    expect(r.rest).toBe('');
+describe('university course code shape (legacy pin)', () => {
+  it('matches the documented format', () => {
+    expect('202420241-CS10101.001'.match(UNIVERSITY_CODE_PATTERN)?.[0]).toBe('202420241-CS10101.001');
   });
 
-  it('still rejects malformed codes when run against the legacy regex', () => {
-    // The legacy constant is now part of DefaultCodeParser; re-create it
-    // here to keep the negative cases pinned without depending on internals.
+  it('rejects malformed codes', () => {
     expect('2024-CS10101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();
     expect('202420241-CS101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();
     expect('202420241CS10101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();

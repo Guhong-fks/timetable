@@ -5,6 +5,7 @@ import {
   coursesToTimetable,
   computeSemesterWeeks,
   computeMaxPeriods,
+  sanitizeCourses,
   DEFAULT_SEMESTER_WEEKS,
   DEFAULT_MAX_PERIODS,
 } from '@/types/timetable';
@@ -20,7 +21,7 @@ import type { ImportReport, TimetableSnapshot } from './types';
  * `react-test-renderer` harness, and means storage changes never have
  * to touch React state code.
  */
-export interface TimetableStore {
+interface TimetableStore {
   /** Snapshot — recomputed only when one of the six fields changes. */
   snapshot: TimetableSnapshot;
   /** False until hydration finishes; UI gates the first paint on this. */
@@ -34,6 +35,18 @@ export interface TimetableStore {
     semesterStartDate?: string,
     report?: ImportReport,
   ) => void;
+  /** Patch one course by id (course-edit modal). The result runs through
+   * `sanitizeCourses`, so period clamping / placeholder stripping apply to
+   * user edits too; week/maxPeriods derive from the updated list so a
+   * moved course updates the grid height automatically. */
+  updateCourse: (id: string, patch: Partial<ScheduledCourse>) => void;
+  /** Append a new course (add-from-empty-slot). The result runs through
+   * `sanitizeCourses` and recomputes the derived bounds like updateCourse. */
+  addCourse: (course: Omit<ScheduledCourse, 'id'> & { id?: string }) => void;
+  /** Remove the courses with the given ids (delete-modal scope 1+2
+   * delete one id; scope 3 deletes every same-name id). Sanitizes and
+   * recomputes the derived bounds like updateCourse. */
+  deleteCourses: (ids: string[]) => void;
   clearCourses: () => void;
   setSemesterStartDate: (date: string) => void;
   dismissReport: () => void;
@@ -46,22 +59,62 @@ export function useTimetableStore(): TimetableStore {
   const [semesterWeeks, setSemesterWeeks] = useState(DEFAULT_SEMESTER_WEEKS);
   const [maxPeriods, setMaxPeriods] = useState(DEFAULT_MAX_PERIODS);
   const [lastReport, setLastReport] = useState<ImportReport | undefined>(undefined);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [isHydrated, setHydrated] = useState(false);
 
   const replaceCourses = useCallback(
     (next: ScheduledCourse[], name?: string, startDate?: string, report?: ImportReport) => {
-      setCourses(next);
+      // Sanitize EVERY inflow (imports included, not just hydrate/migrate):
+      // drops courses with unresolvable timeSlots, clamps start/end periods
+      // to the persisted-model bounds, and strips legacy placeholders. This
+      // is the last line of defense before data reaches the renderer.
+      const clean = sanitizeCourses(next);
+      setCourses(clean);
       setImportedFileName(name);
       // `startDate !== undefined` lets callers pass an empty string to
       // clear it without ambiguity — mirrors the legacy provider's
       // contract that `import.tsx` already relies on.
       if (startDate !== undefined) setSemesterStartDate(startDate);
-      setSemesterWeeks(computeSemesterWeeks(next));
-      setMaxPeriods(computeMaxPeriods(next));
+      setSemesterWeeks(computeSemesterWeeks(clean));
+      setMaxPeriods(computeMaxPeriods(clean));
       setLastReport(report);
     },
     [],
   );
+
+  const updateCourse = useCallback((id: string, patch: Partial<ScheduledCourse>) => {
+    setCourses(current => {
+      const next = current.map(c => (c.id === id ? { ...c, ...patch, id: c.id } : c));
+      const clean = sanitizeCourses(next);
+      setSemesterWeeks(computeSemesterWeeks(clean));
+      setMaxPeriods(computeMaxPeriods(clean));
+      return clean;
+    });
+  }, []);
+
+  const addCourse = useCallback((course: Omit<ScheduledCourse, 'id'> & { id?: string }) => {
+    // Stable unique id: timestamp+random is enough for user-created rows
+    // (imports no longer collide since they carry their own ids, and a
+    // rename/edit keeps the id via updateCourse).
+    const id = course.id ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setCourses(current => {
+      const next = [...current, { ...course, id } as ScheduledCourse];
+      const clean = sanitizeCourses(next);
+      setSemesterWeeks(computeSemesterWeeks(clean));
+      setMaxPeriods(computeMaxPeriods(clean));
+      return clean;
+    });
+  }, []);
+
+  const deleteCourses = useCallback((ids: string[]) => {
+    const drop = new Set(ids);
+    setCourses(current => {
+      const next = current.filter(c => !drop.has(c.id));
+      const clean = sanitizeCourses(next);
+      setSemesterWeeks(computeSemesterWeeks(clean));
+      setMaxPeriods(computeMaxPeriods(clean));
+      return clean;
+    });
+  }, []);
 
   const clearCourses = useCallback(() => {
     setCourses([]);
@@ -99,6 +152,9 @@ export function useTimetableStore(): TimetableStore {
     setHydrated,
     timetable,
     replaceCourses,
+    updateCourse,
+    addCourse,
+    deleteCourses,
     clearCourses,
     setSemesterStartDate,
     dismissReport,

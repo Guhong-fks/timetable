@@ -10,7 +10,7 @@ import { TimeSlot, TIME_SLOT_META } from '@/types/timetable';
 // =============================================================================
 
 /** Six parser phases that can each emit their own warnings. */
-export type WarningCategory =
+type WarningCategory =
   | 'header'    // table header / period column detection
   | 'period'    // period number parsing (out of range, non-integer)
   | 'cell'      // RawCourseBlock extraction (no course code, malformed schedule)
@@ -19,7 +19,7 @@ export type WarningCategory =
   | 'address';  // address parsing fell through to "preserve verbatim"
 
 /** Three severity levels. `error` is recoverable: parse still completes. */
-export type WarningSeverity = 'info' | 'warning' | 'error';
+type WarningSeverity = 'info' | 'warning' | 'error';
 
 export interface CourseWarning {
   /** Stable category for filtering/routing. */
@@ -49,12 +49,6 @@ export interface CourseWarning {
 // =============================================================================
 // Named regular-expression constants
 // =============================================================================
-
-/**
- * Course-code marker used by the .docx importer to locate a course block in a
- * cell. Now defined inside {@link DefaultParser.ts} as part of the strategy
- * chain; see `src/lib/parsers/DefaultParser.ts` for the canonical regex.
- */
 
 /**
  * Token pattern kept for back-compat / unit tests. The state machine in
@@ -208,7 +202,7 @@ function readRangeSeparator(spec: string, start: number): { endIndex: number } |
 // New v4 result shape
 // =============================================================================
 
-export interface WeekParseResult {
+interface WeekParseResult {
   /** Concrete, sorted, deduped 1-based week numbers the course meets in. */
   weekList: number[];
   /**
@@ -469,9 +463,9 @@ export function sanitizeInput(
 // give the teacher field when displaying the course card.
 // =============================================================================
 
-export type TeacherConfidence = 'high' | 'medium' | 'low';
+type TeacherConfidence = 'high' | 'medium' | 'low';
 
-export interface ParsedLocation {
+interface ParsedLocation {
   campus: '磬苑校区' | '其他' | 'unknown';
   address: string;
   teacher: string | null;

@@ -77,5 +77,3 @@ const styles = StyleSheet.create({
   message: { fontSize: 16, marginBottom: 8, textAlign: 'center' },
   hint: { fontSize: 14, marginBottom: 24, textAlign: 'center' },
 });
-
-export default ErrorBoundary;

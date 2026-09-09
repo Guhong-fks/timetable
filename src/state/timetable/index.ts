@@ -1,7 +1,6 @@
 /**
- * Public surface of the timetable state module. The legacy import path
- * `@/state/timetable-context` re-exports from here so call sites can
- * migrate gradually without breakage.
+ * Public surface of the timetable state module. All call sites import
+ * `TimetableProvider` / `useTimetable` / `ImportReport` from here.
  */
 export { TimetableProvider, useTimetable } from './TimetableContext';
 export type { ImportReport } from './types';
