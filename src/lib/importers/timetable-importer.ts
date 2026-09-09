@@ -49,6 +49,13 @@ interface ImportResult {
   courses: ScheduledCourse[];
   timetable: TimetableData;
   /**
+   * .ics only: the earliest timed DTSTART as 'YYYY-MM-DD' (natural week-1
+   * Monday). The import screen adopts it as 学期开始日期 when the user has
+   * not set one, so grid dates render right after the import. Other
+   * formats leave it undefined.
+   */
+  inferredSemesterStart?: string;
+  /**
    * Structured parse report — single source of truth for warnings.
    * Lives next to the imported courses so the UI can show a
    * "查看解析详情" entry alongside the timetable.
@@ -324,7 +331,7 @@ async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
     throw new Error('文件编码无法识别，请用 UTF-8 编码重新导出 .ics 文件');
   }
 
-  const { courses, warnings } = parseIcsTimetable(text, semesterStartForIcs());
+  const { courses, warnings, inferredSemesterStart } = parseIcsTimetable(text, semesterStartForIcs());
 
   for (const w of warnings) {
     report.addWarningFromParts(w.category, w.severity, w.message, undefined, w.raw);
@@ -335,7 +342,12 @@ async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
     throw new Error(firstError?.message ?? '未能从该日历文件识别出课程');
   }
 
-  return { courses, timetable: coursesToTimetable(courses), report: report.snapshot() };
+  return {
+    courses,
+    timetable: coursesToTimetable(courses),
+    report: report.snapshot(),
+    inferredSemesterStart: inferredSemesterStart ?? undefined,
+  };
 }
 
 /**

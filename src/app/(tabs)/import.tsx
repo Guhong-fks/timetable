@@ -17,6 +17,10 @@ interface PendingImport {
   courses: ScheduledCourse[];
   report: { warnings: ReportWarning[]; suggestions: string[] };
   fileName: string;
+  /** .ics only: earliest timed DTSTART (natural week-1 Monday). Adopted as
+   * 学期开始日期 on commit when the user hasn't set one — without it the
+   * grid header hides all dates and ICS week math is meaningless. */
+  inferredSemesterStart?: string;
 }
 
 /** Probed once per app session at module scope — outside React's render,
@@ -34,7 +38,9 @@ export default function ImportScreen() {
   const { replaceCourses, clearCourses, courses, importedFileName, semesterStartDate, setSemesterStartDate } = useTimetable();
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
-  const [startDateInput, setStartDateInput] = useState(semesterStartDate ?? '');
+  // Input box shows the COMPACT 8-digit form (e.g. 20260907); the store
+  // keeps ISO 'YYYY-MM-DD' (every consumer parses that shape).
+  const [startDateInput, setStartDateInput] = useState((semesterStartDate ?? '').replaceAll('-', ''));
   const [lastImportTime, setLastImportTime] = useState(0);
   /** Parsed-but-unconfirmed import; rendering this switches to the preview. */
   const [pending, setPending] = useState<PendingImport | null>(null);
@@ -66,7 +72,12 @@ export default function ImportScreen() {
       const result = await parseTimetableFile(file);
       // Route through the preview: the user confirms/fixes the recognized
       // list before anything touches the store.
-      setPending({ courses: result.courses, report: result.report, fileName: file.name });
+      setPending({
+        courses: result.courses,
+        report: result.report,
+        fileName: file.name,
+        inferredSemesterStart: result.inferredSemesterStart,
+      });
     } catch (error) {
       // A total-recognition failure carries the parse report; surface the
       // per-stage warnings inline and offer the IR dump for bug reports.
@@ -87,7 +98,12 @@ export default function ImportScreen() {
   /** Preview accepted → commit the (possibly edited) subset. */
   const commitPending = (kept: ScheduledCourse[]) => {
     if (!pending) return;
-    replaceCourses(kept, pending.fileName, undefined, pending.report);
+    // .ics carries its own calendar: adopt the earliest DTSTART as the
+    // semester start when the user hasn't set one — otherwise the grid
+    // header shows no dates and ICS weeks degrade to 1..18.
+    const startDate = semesterStartDate ?? pending.inferredSemesterStart;
+    replaceCourses(kept, pending.fileName, startDate, pending.report);
+    if (!semesterStartDate && startDate) setStartDateInput(startDate.replaceAll('-', ''));
     setStatus(`已导入 ${kept.length} 门课程${pending.report.warnings.length ? `（${pending.report.warnings.length} 条警告，请查看课表底部详情）` : '。'}`);
     setPending(null);
   };
@@ -142,9 +158,14 @@ export default function ImportScreen() {
   }
 
   const handleDateChange = (text: string) => {
-    setStartDateInput(text);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-      setSemesterStartDate(text);
+    // Input box always shows COMPACT digits (20260907). The STORED format
+    // stays ISO 'YYYY-MM-DD' — every consumer (grid date math, ICS week
+    // anchor) parses that shape — so the 8th digit commits to the store.
+    // ISO pastes normalize too (dashes stripped before the digit count).
+    const digits = text.replace(/\D/g, '').slice(0, 8);
+    setStartDateInput(digits);
+    if (digits.length === 8) {
+      setSemesterStartDate(`${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`);
     }
   };
 
@@ -167,7 +188,7 @@ export default function ImportScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText type="title">导入课表</ThemedText>
           <ThemedText themeColor="textSecondary">
-            选择你的课表文件（.docx / .doc / .xlsx / .ics），解析后可预览确认。
+            选择你的课表文件（.docx / .doc / .xlsx / .ics），解析后可预览确认。建议导入word文件前先删除课表以外的无关信息。
           </ThemedText>
 
           {/* Surface the missing-native-module case early. On Expo Go the
@@ -192,19 +213,19 @@ export default function ImportScreen() {
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
-              设置第一周周一的日期，用于在课表中显示具体上课日期；导入 .ics 文件时也按此换算周次
+              输入课程第一周周一的日期（8 位数字，如 20260907），用于显示上课日期。
             </ThemedText>
             <TextInput
               value={startDateInput}
               onChangeText={handleDateChange}
-              placeholder="YYYY-MM-DD (例如 2025-02-17)"
+              inputMode="numeric"
+              placeholder="例如 20260907"
               placeholderTextColor={theme.textSecondary}
-              keyboardType="numeric"
               style={[styles.dateInput, { color: theme.text, borderColor: theme.textSecondary + '55', backgroundColor: theme.background }]}
             />
             {semesterStartDate && (
               <ThemedText themeColor="textSecondary" style={styles.currentDate}>
-                当前设置：{semesterStartDate} (第1周周一)
+                当前设置：{semesterStartDate.replaceAll('-', '')} (第1周周一)
               </ThemedText>
             )}
           </ThemedView>
@@ -251,7 +272,7 @@ export default function ImportScreen() {
           </ThemedText>
           <ThemedText themeColor="textSecondary">
             <ThemedText type="smallBold">导入 .ics 日历文件：</ThemedText>
-            在其他课程表 App（WakeUp 超级课程表等）中打开课表 → 分享/更多 → “导出到日历文件”，得到
+            在其他课程表 App（WakeUp/超级课程表等）中打开课表 → 分享/更多 → “导出到日历文件”，得到
             .ics 文件后在这里导入。
           </ThemedText>
           <ThemedText themeColor="textSecondary">
@@ -279,6 +300,10 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.two,
     padding: Spacing.two,
     fontSize: 16,
+    // Android: default includeFontPadding shifts text up inside the box;
+    // center vertically like the week-input on the timetable header.
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   currentDate: { marginTop: Spacing.one, fontSize: 13 },
   button: { padding: Spacing.three, borderRadius: Spacing.two, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: Spacing.one },

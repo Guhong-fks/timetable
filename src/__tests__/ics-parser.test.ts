@@ -179,6 +179,12 @@ describe('real WakeUp export (课表.ics)', () => {
     );
   });
 
+  it('infers the semester start from the earliest timed DTSTART', () => {
+    // Earliest DTSTART in the fixture = 2026-09-07 08:00 (Monday).
+    const { inferredSemesterStart } = parseIcsTimetable(text, undefined);
+    expect(inferredSemesterStart).toBe('2026-09-07');
+  });
+
   it('multi-teacher LOCATION chain preserved verbatim', () => {
     const { courses } = parseIcsTimetable(text, FIXTURE_ANCHOR);
     const physicsExp = courses.find((c) => c.name === '大学物理实验A（下）');

@@ -69,6 +69,13 @@ interface IcsEvent {
 interface IcsParseResult {
   courses: ScheduledCourse[];
   warnings: CourseWarning[];
+  /**
+   * Earliest timed DTSTART as 'YYYY-MM-DD' — the natural week-1 Monday the
+   * school calendar almost always aligns with the first meeting date. The
+   * import screen adopts this when the user has not set a semester start,
+   * so the grid header shows dates immediately after an .ics import.
+   */
+  inferredSemesterStart: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -412,6 +419,13 @@ function weekStartMonday(date: Date): number {
   return d.getTime();
 }
 
+/** Wall-clock calendar date → 'YYYY-MM-DD' (zero-padded). */
+export function wallDateToIso(dt: IcsDateTime): string {
+  const mm = String(dt.month).padStart(2, '0');
+  const dd = String(dt.day).padStart(2, '0');
+  return `${dt.year}-${mm}-${dd}`;
+}
+
 /** Parse 'YYYY-MM-DD' to the Monday of its week; null when malformed. */
 export function weekAnchorFromIso(iso: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
@@ -451,7 +465,7 @@ export function parseIcsTimetable(
       message: '未在文件中找到日历事件（VEVENT），请确认是课程表软件导出的 .ics 文件',
       raw: text.slice(0, 200),
     });
-    return { courses: [], warnings };
+    return { courses: [], warnings, inferredSemesterStart: null };
   }
   if (events.length > MAX_ICS_EVENTS) {
     warnings.push({
@@ -473,6 +487,18 @@ export function parseIcsTimetable(
     });
   }
   const noAnchor = anchorMs === null;
+
+  // Earliest timed DTSTART (wall-clock) across events — the inferred
+  // semester start. All-day events carry no meeting time and are skipped
+  // (they also warn below).
+  let earliest: IcsDateTime | null = null;
+  for (const event of events) {
+    if (event.start.hour === null) continue;
+    if (!earliest || icsToInstantMs(event.start) < icsToInstantMs(earliest)) {
+      earliest = event.start;
+    }
+  }
+  const inferredSemesterStart = earliest ? wallDateToIso(earliest) : null;
 
   // Per-event drafts keyed for merging: the same course recurring as several
   // single-week VEVENTs (WakeUp's non-weekly shape) must become ONE course
@@ -650,5 +676,5 @@ export function parseIcsTimetable(
     courses.push(course);
   }
 
-  return { courses, warnings };
+  return { courses, warnings, inferredSemesterStart };
 }
