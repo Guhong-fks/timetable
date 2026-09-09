@@ -1,8 +1,6 @@
 import {
   slot,
   parseWeekPattern,
-  parseLocationAndTeacher,
-  parseLocationAndTeacherDetailed,
   MIN_PERIOD,
   MAX_PERIOD,
 } from '@/lib/importers/parsers';
@@ -66,63 +64,5 @@ describe('parseWeekPattern() — warning emission', () => {
   it('emits a rawText echo', () => {
     const r = parseWeekPattern('1-8周 单周');
     expect(r.rawText).toBe('1-8周 单周');
-  });
-});
-
-describe('parseLocationAndTeacherDetailed() — null teacher + raw address', () => {
-  it('returns null teacher when no regex matches', () => {
-    const r = parseLocationAndTeacherDetailed('磬苑校区 博学楼 B101');
-    expect(r.teacher).toBeNull();
-    expect(r.address).toBe('博学楼 B101');
-    expect(r.confidence).toBe('low');
-  });
-
-  it('returns null teacher for an address with no campus prefix and no name', () => {
-    const r = parseLocationAndTeacherDetailed('某栋某教室');
-    expect(r.campus).toBe('unknown');
-    expect(r.teacher).toBeNull();
-    expect(r.address).toBe('某栋某教室');
-  });
-
-  it('returns "high" confidence when title-bearing name matches', () => {
-    const r = parseLocationAndTeacherDetailed('磬苑校区 博学楼 B101 李欧阳老师');
-    expect(r.teacher).toBe('李欧阳老师');
-    expect(r.confidence).toBe('high');
-  });
-
-  it('returns "medium" confidence for NAME_ONLY match', () => {
-    const r = parseLocationAndTeacherDetailed('磬苑校区 博学楼 B101 张老师');
-    expect(r.teacher).toBe('张老师');
-    expect(r.confidence).toBe('medium');
-  });
-
-  it('returns empty address for campus-only line', () => {
-    const r = parseLocationAndTeacherDetailed('磬苑校区');
-    expect(r.address).toBe('');
-    expect(r.teacher).toBeNull();
-  });
-});
-
-describe('parseLocationAndTeacher() — back-compat wrapper', () => {
-  it('coerces null teacher to "未填写"', () => {
-    const r = parseLocationAndTeacher('磬苑校区 博学楼 B101');
-    expect(r.teacher).toBe('未填写');
-  });
-
-  it('coerces "unknown" campus to 磬苑校区 (legacy default)', () => {
-    const r = parseLocationAndTeacher('某栋某教室');
-    expect(r.campus).toBe('磬苑校区');
-    expect(r.building).toBe('某栋某教室');
-  });
-
-  it('coerces empty address to "未填写"', () => {
-    const r = parseLocationAndTeacher('磬苑校区');
-    expect(r.building).toBe('未填写');
-  });
-
-  it('keeps existing title-bearing match unchanged', () => {
-    const r = parseLocationAndTeacher('磬苑校区 博学楼 B101 张老师');
-    expect(r.teacher).toBe('张老师');
-    expect(r.building).toBe('博学楼 B101');
   });
 });

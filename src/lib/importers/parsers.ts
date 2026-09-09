@@ -50,12 +50,6 @@ export interface CourseWarning {
 // Named regular-expression constants
 // =============================================================================
 
-/**
- * Token pattern kept for back-compat / unit tests. The state machine in
- * `tokenizeWeekSpec` does not consume this regex directly.
- */
-export const WEEK_TOKEN_PATTERN: RegExp = /(\d+)(?:\s*[~-]\s*(\d+))?/g;
-
 /** Title words the with-title teacher regex accepts. */
 export const TEACHER_TITLES: readonly string[] = [
   '老师',
@@ -450,99 +444,6 @@ export function sanitizeInput(
   sanitized = sanitized.replace(CONTROL_AND_SPACE_PATTERN, ' ');
   if (!preserveWhitespace) sanitized = sanitized.trim();
   return sanitized;
-}
-
-// =============================================================================
-// Parser: Location + teacher
-// -----------------------------------------------------------------------------
-// New return shape:
-//   - campus:   '磬苑校区' | '其他' | 'unknown'   ('unknown' = no campus prefix)
-//   - address:  the raw remainder, trimmed; never '未填写' — empty means empty
-//   - teacher:  string | null                     (null = no regex matched)
-// `confidence: 'high' | 'medium' | 'low'` tells the UI how much weight to
-// give the teacher field when displaying the course card.
-// =============================================================================
-
-type TeacherConfidence = 'high' | 'medium' | 'low';
-
-interface ParsedLocation {
-  campus: '磬苑校区' | '其他' | 'unknown';
-  address: string;
-  teacher: string | null;
-  confidence: TeacherConfidence;
-}
-
-/**
- * @deprecated Prefer {@link parseLocationAndTeacherDetailed}. Kept for
- * back-compat with existing UI: returns `teacher ?? '未填写'` and
- * `address || '未填写'` so the renderer doesn't have to special-case null.
- */
-export function parseLocationAndTeacher(line: string): {
-  campus: '磬苑校区' | '其他';
-  building: string;
-  room: string;
-  teacher: string;
-} {
-  const r = parseLocationAndTeacherDetailed(line);
-  return {
-    campus: r.campus === 'unknown' ? '磬苑校区' : r.campus,
-    building: r.address || '未填写',
-    room: '未填写',
-    teacher: r.teacher ?? '未填写',
-  };
-}
-
-/**
- * Lossless version of the location parser. Returns the raw remainder as
- * `address` (never coerced to a placeholder) and `null` for teacher when no
- * pattern matched (UI can choose to show "未识别" vs "未填写").
- */
-export function parseLocationAndTeacherDetailed(line: string): ParsedLocation {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return { campus: 'unknown', address: '', teacher: null, confidence: 'low' };
-  }
-
-  // Campus prefix: known prefix → concrete campus; otherwise 'unknown'.
-  const campusMatch = trimmed.match(/^(磬苑校区|其他校区|望岳校区|翠园校区)\s*/);
-  let campus: '磬苑校区' | '其他' | 'unknown';
-  let afterCampus: string;
-  if (campusMatch) {
-    campus = campusMatch[1] === '其他校区' ? '其他' : '磬苑校区';
-    afterCampus = trimmed.slice(campusMatch[0].length).trim();
-  } else {
-    campus = 'unknown';
-    afterCampus = trimmed;
-  }
-
-  if (!afterCampus) {
-    return { campus, address: '', teacher: null, confidence: 'low' };
-  }
-
-  // Try patterns most-specific first.
-  const teacherPatterns: { pattern: RegExp; confidence: TeacherConfidence }[] = [
-    { pattern: TEACHER_WITH_TITLE_PATTERN, confidence: 'high' },
-    { pattern: TEACHER_NAME_ONLY_PATTERN, confidence: 'medium' },
-    { pattern: TEACHER_COMPOUND_SURNAME_PATTERN, confidence: 'low' },
-  ];
-
-  let address = afterCampus;
-  let teacher: string | null = null;
-  let confidence: TeacherConfidence = 'low';
-
-  for (const { pattern, confidence: c } of teacherPatterns) {
-    const match = address.match(pattern);
-    if (match?.groups) {
-      address = match.groups.address.trim();
-      teacher = sanitizeInput(match.groups.name.trim());
-      confidence = c;
-      break;
-    }
-  }
-
-  address = address.replace(/^[\s、，,；;：:]+|[\s、，,；;：:]+$/g, '').trim();
-
-  return { campus, address, teacher, confidence };
 }
 
 // =============================================================================

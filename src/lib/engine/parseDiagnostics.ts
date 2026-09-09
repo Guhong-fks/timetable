@@ -11,7 +11,7 @@
 // =============================================================================
 import type { ScheduledCourse } from '@/types/timetable';
 import { irToGridCells } from '@/lib/engine/recognizer';
-import { buildDenseGrid, detectLayout, type GridCell, type TableLayout } from '@/lib/engine/tableGrid';
+import { buildDenseGrid, detectLayout, type TableLayout } from '@/lib/engine/tableGrid';
 import type { IrTableBlock } from '@/lib/engine/recognizer';
 
 export interface ParseDiagnostics {
@@ -58,13 +58,10 @@ export function collectParseDiagnostics(
   // courses to the LAST table that has a layout — good enough for the
   // common single-timetable document.
   let lastLayout: TableLayout | null = null;
-  const grids: { grid: (GridCell | null)[][]; layout: TableLayout }[] = [];
 
   for (const table of tables) {
     const anchors = irToGridCells(table);
-    const grid = buildDenseGrid(anchors);
-    const { layout } = detectLayout(grid);
-    grids.push({ grid, layout });
+    const { layout } = detectLayout(buildDenseGrid(anchors));
     lastLayout = layout;
     perTable.push({
       index: perTable.length,
@@ -109,8 +106,6 @@ export function collectParseDiagnostics(
       location: c.location?.address || '',
     }));
   }
-  void grids;
-
   return {
     capturedAt: new Date().toISOString(),
     appVersion,

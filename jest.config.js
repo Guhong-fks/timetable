@@ -5,11 +5,6 @@ module.exports = {
     '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
-  collectCoverageFrom: [
-    'src/lib/importers/parsers.ts',
-    '!src/**/*.d.ts',
-  ],
-  coverageDirectory: 'coverage',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     // react-native-anydoc pulls in Nitro at import-time; we don't load the

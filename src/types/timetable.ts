@@ -1,8 +1,8 @@
 export enum WeekDay { MONDAY='Monday', TUESDAY='Tuesday', WEDNESDAY='Wednesday', THURSDAY='Thursday', FRIDAY='Friday', SATURDAY='Saturday', SUNDAY='Sunday' }
 export enum TimeSlot { ONE_TWO='1-2', THREE_FOUR='3-4', FIVE_SIX='5-6', SEVEN_EIGHT='7-8', EIGHT='8', NINE='9', TEN='10', ELEVEN='11', TWELVE='12', THIRTEEN='13' }
 
-// Backward-compat alias for data persisted before 11/12/13 were split.
-// Old '11-13' entries are read-only and coerced to ELEVEN on hydrate.
+// Legacy meta for data persisted before 11/12/13 were split: the '11-13'
+// key renders 3 rows. Private — getTimeSlotMeta is the only consumer.
 type LegacyTimeSlotKey = '11-13';
 const LEGACY_TIME_SLOT_META: Record<LegacyTimeSlotKey, {label: string; start: number; end: number; duration: number}> = {
   '11-13': {label: '11-13 节', start: 11, end: 13, duration: 3},
@@ -146,8 +146,9 @@ export function sanitizeCourses(raw: unknown): ScheduledCourse[] {
   return out;
 }
 
-/** Look up meta for a time slot key, falling back to legacy aliases.
- * Returns null if the key is unknown. */
+/** Look up meta for a time slot key, falling back to the legacy '11-13'
+ * alias. Returns null if the key is unknown — callers must drop/guard,
+ * never subscript. */
 export function getTimeSlotMeta(slot: string): {label: string; start: number; end: number; duration: number} | null {
   if (slot in TIME_SLOT_META) return TIME_SLOT_META[slot as TimeSlot];
   if (slot in LEGACY_TIME_SLOT_META) return LEGACY_TIME_SLOT_META[slot as LegacyTimeSlotKey];
@@ -232,11 +233,8 @@ export interface ScheduledCourse {
   colorOverride?: string;
 }
 export type TimetableData = { [day in WeekDay]: ScheduledCourse[] };
-function createEmptyTimetable(): TimetableData {
-  return WEEK_DAYS.reduce((result, day) => { result[day] = []; return result; }, {} as TimetableData);
-}
 export function coursesToTimetable(courses: ScheduledCourse[]): TimetableData {
-  const result = createEmptyTimetable();
+  const result = WEEK_DAYS.reduce((acc, day) => { acc[day] = []; return acc; }, {} as TimetableData);
   courses.forEach(course => result[course.day].push(course));
   return result;
 }

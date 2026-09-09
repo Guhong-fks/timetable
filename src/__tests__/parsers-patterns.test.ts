@@ -1,10 +1,5 @@
 import {
-  TEACHER_TITLES,
-  TEACHER_WITH_TITLE_PATTERN,
-  TEACHER_NAME_ONLY_PATTERN,
-  TEACHER_COMPOUND_SURNAME_PATTERN,
   sanitizeInput,
-  parseLocationAndTeacher,
   parseWeekPattern,
   tokenizeWeekSpec,
 } from '@/lib/importers/parsers';
@@ -24,58 +19,6 @@ describe('university course code shape (legacy pin)', () => {
     expect('202420241-CS101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();
     expect('202420241CS10101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();
     expect('20242024x-CS10101.001'.match(UNIVERSITY_CODE_PATTERN)).toBeNull();
-  });
-});
-
-describe('teacher & tokenisation patterns', () => {
-  it('WEEK_TOKEN_PATTERN captures a single number', () => {
-    // Drive the same source via exec() to read the captures.
-    const m = /(\d+)(?:\s*[~-]\s*(\d+))?/.exec('3周');
-    expect(m).not.toBeNull();
-    expect(m?.[1]).toBe('3');
-    expect(m?.[2]).toBeUndefined();
-  });
-
-  it('WEEK_TOKEN_PATTERN captures a range', () => {
-    const m = /(\d+)(?:\s*[~-]\s*(\d+))?/.exec('3 - 10 周');
-    expect(m?.[1]).toBe('3');
-    expect(m?.[2]).toBe('10');
-  });
-
-  it('TEACHER_TITLES is non-empty and contains the canonical words', () => {
-    expect(TEACHER_TITLES.length).toBeGreaterThan(0);
-    for (const word of ['老师', '教授', '副教授', '讲师', '助教']) {
-      expect(TEACHER_TITLES).toContain(word);
-    }
-  });
-
-  it('TEACHER_WITH_TITLE_PATTERN accepts a longer name + title (4 chars + title)', () => {
-    // Pattern requires the name block to leave 2 chars for the title suffix,
-    // so the name itself must be >= 2 CJK chars. '李欧阳老师' has 4 chars
-    // before '老师' and exercises the title-aware path.
-    const m = '博学楼 B101 李欧阳老师'.match(TEACHER_WITH_TITLE_PATTERN);
-    expect(m?.groups?.name).toBe('李欧阳老师');
-    expect(m?.groups?.address).toBe('博学楼 B101');
-  });
-
-  it('TEACHER_WITH_TITLE_PATTERN does NOT match a 3-char name (falls through to NAME_ONLY)', () => {
-    // '张老师' = 3 CJK chars; the pattern's `{2,4}` consumes too many for
-    // the title suffix to fit. NAME_ONLY catches this in production.
-    expect('博学楼 B101 张老师'.match(TEACHER_WITH_TITLE_PATTERN)).toBeNull();
-  });
-
-  it('TEACHER_WITH_TITLE_PATTERN rejects a title without a name', () => {
-    expect('老师'.match(TEACHER_WITH_TITLE_PATTERN)).toBeNull();
-  });
-
-  it('TEACHER_NAME_ONLY_PATTERN accepts a plain name', () => {
-    const m = '博学楼 B101 张三'.match(TEACHER_NAME_ONLY_PATTERN);
-    expect(m?.groups?.name).toBe('张三');
-  });
-
-  it('TEACHER_COMPOUND_SURNAME_PATTERN tolerates a 5-char name', () => {
-    const m = '博学楼 B101 欧阳娜娜'.match(TEACHER_COMPOUND_SURNAME_PATTERN);
-    expect(m?.groups?.name).toBe('欧阳娜娜');
   });
 });
 
@@ -198,24 +141,5 @@ describe('sanitizeInput (merged regex + new guards)', () => {
 
   it('returns "" for empty input', () => {
     expect(sanitizeInput('')).toBe('');
-  });
-});
-
-describe('parseLocationAndTeacher (uses new named patterns)', () => {
-  it('matches a title-bearing teacher via TEACHER_WITH_TITLE_PATTERN', () => {
-    const r = parseLocationAndTeacher('磬苑校区 博学楼 B101 张老师');
-    expect(r.teacher).toBe('张老师');
-    expect(r.building).toBe('博学楼 B101');
-  });
-
-  it('matches a compound surname via TEACHER_COMPOUND_SURNAME_PATTERN', () => {
-    const r = parseLocationAndTeacher('磬苑校区 博学楼 B101 欧阳娜娜');
-    expect(r.teacher).toBe('欧阳娜娜');
-  });
-
-  it('falls back to 未填写 when nothing matches', () => {
-    const r = parseLocationAndTeacher('磬苑校区 博学楼 B101');
-    expect(r.teacher).toBe('未填写');
-    expect(r.building).toBe('博学楼 B101');
   });
 });

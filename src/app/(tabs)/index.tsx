@@ -1,4 +1,4 @@
-import { startTransition, useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { startTransition, useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import Animated, { useAnimatedStyle, withTiming, runOnJS, Easing } from 'react-native-reanimated';
 import { AppState, Modal, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
@@ -159,6 +159,12 @@ interface WeekGridBodyProps {
    * contains today (drives the today highlight inside the panel). */
   week: number;
   weekIsCurrent: boolean;
+  /** Today's weekday + M/D label, computed ONCE on the screen (memoized on
+   * the calendar day) instead of `new Date()` inside every panel render —
+   * inside, it would defeat React.memo and drift between sibling panels
+   * mid-render. */
+  todayDay: WeekDay;
+  todayDateLabel: string;
   monthLabel: string;
   semesterStartDate?: string;
   maxPeriods: number;
@@ -173,16 +179,17 @@ interface WeekGridBodyProps {
   onEmptySlotPress: (day: WeekDay, period: number) => void;
 }
 
-/**
- * One week panel of the timetable grid (header row + time column + day
- * columns with positioned cards). Pure function of its props — the
- * transition machinery lives in the screen.
- */
-function WeekGridBody({
+/** Memo boundary: the T3 re-derive frame (neighbor re-mounts + today's
+ * highlight recompute) must not re-render UNCHANGED panels. Every prop is
+ * referentially stable across such frames: theme = module const,
+ * positioned/monthLabel = useMemo, handlers = useCallback/hoisted consts. */
+const WeekGridBody = memo(function WeekGridBody({
   positioned,
   theme,
   week,
   weekIsCurrent,
+  todayDay,
+  todayDateLabel,
   monthLabel,
   semesterStartDate,
   maxPeriods,
@@ -193,9 +200,6 @@ function WeekGridBody({
   onPeriodPress,
   onEmptySlotPress,
 }: WeekGridBodyProps) {
-  const now = new Date();
-  const todayDay = WEEK_DAYS[(now.getDay() + 6) % 7];
-  const todayDateLabel = `${now.getMonth() + 1}/${now.getDate()}`;
   // Per-scheme hairline alphas (dark mode needs stronger grid lines).
   const alpha = theme.background === '#10151B' ? GridLineAlpha.dark : GridLineAlpha.light;
   // Full week width = time column + 7 compressed day columns (fits viewport).
@@ -287,7 +291,7 @@ function WeekGridBody({
       </View>
     </View>
   );
-}
+});
 
 export default function TimetableScreen() {
   const theme = useTheme();
@@ -428,13 +432,16 @@ export default function TimetableScreen() {
     ? formatDayDate(semesterStartDate, selectedWeek, todayDay) === todayDateLabel
     : false;
 
-  const handleCoursePress = (course: ScheduledCourse) => {
+  // Memoized handlers: React.memo on WeekGridBody compares props by
+  // reference — recreated-per-render closures would defeat it on every
+  // screen render.
+  const handleCoursePress = useCallback((course: ScheduledCourse) => {
     setSelectedCourse(course);
-  };
+  }, []);
 
-  const handleEmptySlotPress = (day: WeekDay, period: number) => {
+  const handleEmptySlotPress = useCallback((day: WeekDay, period: number) => {
     setCreatingDraft({ day, startPeriod: period, endPeriod: period, week: selectedWeek });
-  };
+  }, [selectedWeek]);
 
   const pendingWeekRef = useRef<number | null>(null);
   // Strip phase machine:
@@ -443,22 +450,31 @@ export default function TimetableScreen() {
   //                   triggers a mid-drag render (the old onPullStart
   //                   mount visibly stuttered).
   //   pending-snap  — the push animation landed at ±panelWidth showing
-  //                   the target panel; the week swap committed with the
-  //                   VISIBLE neighbor DUPLICATED (both panels = target),
-  //                   so the pixels are identical. The snap back to 0 is
-  //                   deferred to rAF, AFTER this render commits —
-  //                   snapping earlier (while React's swap was still
-  //                   pending) flashed the OLD week's dates for a frame
-  //                   (the "dates jump" bug).
+  //                   the target panel; the week swap committed with ONLY
+  //                   the visible side duplicated (snapDir picks which) —
+  //                   pixel-identical to what the strip arrived showing.
+  //                   The snap back to 0 is deferred to rAF, AFTER this
+  //                   render commits — snapping earlier (while React's
+  //                   swap was still pending) flashed the OLD week's dates
+  //                   for a frame (the "dates jump" bug).
   const [snapPhase, setSnapPhase] = useState<'idle' | 'pending-snap'>('idle');
-  // Left neighbor slot: during pending-snap it duplicates the committed
-  // week (covers the strip's left-panel position); at idle it pre-mounts
-  // the PREVIOUS week (or nothing at week 1).
+  /** Commit direction, set at commit time and held through pending-snap:
+   * only the panel the strip moved TOWARD is visible at the ±panelWidth
+   * rest position, so ONLY that side duplicates the target week; the
+   * opposite side freezes at its pre-switch content (React.memo skips it),
+   * then re-derives to the standard pre-mount at idle. Halves the neighbor
+   * renders per commit. */
+  const [snapDir, setSnapDir] = useState<'next' | 'prev' | null>(null);
+  // Neighbor slots during pending-snap: visible side = target (must be
+  // pixel-identical to the main panel when the strip snaps to 0 — the
+  // anti-flash snapshot), frozen side = its pre-switch idle value expressed
+  // against the NEW selectedWeek (target∓2; null at the grid boundary).
+  // At idle both sides re-derive to the standard pre-mounts.
   const neighborLeft: number | null = snapPhase === 'pending-snap'
-    ? selectedWeek
+    ? (snapDir === 'prev' ? selectedWeek : (selectedWeek - 2 >= 1 ? selectedWeek - 2 : null))
     : (selectedWeek > 1 ? selectedWeek - 1 : null);
   const neighborRight: number | null = snapPhase === 'pending-snap'
-    ? selectedWeek
+    ? (snapDir === 'next' ? selectedWeek : (selectedWeek + 2 <= semesterWeeks ? selectedWeek + 2 : null))
     : (selectedWeek < semesterWeeks ? selectedWeek + 1 : null);
   // Pre-mounted neighbor panels: courses + positioned layout, same shape
   // as the current week's so the panel renderer is shared.
@@ -499,6 +515,22 @@ export default function TimetableScreen() {
     ],
   }));
 
+  /** Header display week: flips at COMMIT TIME (when the visible neighbor —
+   * already showing the target week — starts riding the strip), not when
+   * the settle animation finishes. selectedWeek keeps flipping in
+   * finishTransition (the snapshot-anti-flash sequencing depends on it),
+   * but the header must not lag the grid by the full settle duration.
+   * State, not a ref: the header re-render IS the point. Declared BEFORE
+   * finishTransition/commitWeek, which set it (React hooks rule: a setter
+   * must be lexically declared before use). */
+  const [pendingDisplayWeek, setPendingDisplayWeek] = useState<number | null>(null);
+  const displayWeek = pendingDisplayWeek ?? selectedWeek;
+  const displayCourses = useMemo(
+    () => coursesForWeek(courses, displayWeek),
+    [courses, displayWeek],
+  );
+  const displayCount = displayCourses.length;
+
   /** Transition end (JS). Swap sequencing (the "dates jump" fix):
    *  1. Commit the target week SYNCHRONOUSLY with the visible neighbor
    *     DUPLICATED (both panels = target) — pixel-identical to what the
@@ -517,11 +549,15 @@ export default function TimetableScreen() {
     pendingWeekRef.current = null;
     setSelectedWeek(target);
     setWeekInput(String(target));
+    setPendingDisplayWeek(null);
     setSnapPhase('pending-snap');
     requestAnimationFrame(() => {
       stripX.value = 0;
       stripY.value = 0;
-      requestAnimationFrame(() => setSnapPhase('idle'));
+      requestAnimationFrame(() => {
+        setSnapPhase('idle');
+        setSnapDir(null);
+      });
     });
   }, [stripX, stripY]);
 
@@ -530,8 +566,23 @@ export default function TimetableScreen() {
   const commitWeek = useCallback((week: number) => {
     const nextWeek = Math.min(Math.max(week, 1), semesterWeeks);
     if (nextWeek === selectedWeek || pendingWeekRef.current !== null) return;
+    // Reject while a transition is settling (strip displaced): an in-place
+    // swap here would change the main panel while the strip is parked at
+    // ±panelWidth.
+    if (snapPhase !== 'idle') return;
+    if (Math.abs(nextWeek - selectedWeek) > 1) {
+      // Multi-week input jump: the slide animates exactly ONE panel width,
+      // which would carry the ±1 pre-mounted neighbor (the WRONG week) into
+      // view. Swap in place at rest instead — one render, header + main +
+      // neighbors all consistent, no snapshot dance needed.
+      setSelectedWeek(nextWeek);
+      setWeekInput(String(nextWeek));
+      return;
+    }
     const dirNext = nextWeek > selectedWeek;
     pendingWeekRef.current = nextWeek;
+    setPendingDisplayWeek(nextWeek); // header flips now, with the grid
+    setSnapDir(dirNext ? 'next' : 'prev');
     requestAnimationFrame(() => {
       stripX.value = withTiming(dirNext ? -scrollBounds.panelWidth : scrollBounds.panelWidth, {
         duration: WEEK_TRANSITION_MS,
@@ -541,16 +592,19 @@ export default function TimetableScreen() {
         if (finished) runOnJS(finishTransition)();
       });
     });
-  }, [selectedWeek, semesterWeeks, stripX, scrollBounds.panelWidth, finishTransition]);
+  }, [selectedWeek, semesterWeeks, snapPhase, stripX, scrollBounds.panelWidth, finishTransition]);
 
   /** Called when the gesture's worklet decides a pull should commit:
    * set the pending target from the LIVE week, then finish the push
    * from where the finger left it. Hoisted function declaration so the
    * hook above can reference it before this line. */
   function commitFromPull(dirNext: boolean) {
-    pendingWeekRef.current = dirNext
+    const target = dirNext
       ? Math.min(selectedWeek + 1, semesterWeeks)
       : Math.max(selectedWeek - 1, 1);
+    pendingWeekRef.current = target;
+    setPendingDisplayWeek(target); // header flips now, with the grid
+    setSnapDir(dirNext ? 'next' : 'prev');
     const rest = dirNext ? -scrollBounds.panelWidth : scrollBounds.panelWidth;
     // eslint-disable-next-line react-hooks/immutability -- Reanimated shared value
     stripX.value = withTiming(rest, {
@@ -561,7 +615,6 @@ export default function TimetableScreen() {
       if (finished) runOnJS(finishTransition)();
     });
   }
-
 
   /** Resolve a delete scope (edit modal → confirm sheet) into concrete
    * store operations.
@@ -605,11 +658,13 @@ export default function TimetableScreen() {
     else setWeekInput(String(selectedWeek));
   };
 
-  const openPeriodEditor = (period: number) => {
+  // Memoized: WeekGridBody is a React.memo boundary — a per-render closure
+  // would re-render every panel on every screen render.
+  const openPeriodEditor = useCallback((period: number) => {
     setSelectedPeriod(period);
     setPeriodTimeInput(periodTimes[period]);
     setPeriodDurationInput(String(periodDurations[period]));
-  };
+  }, [periodTimes, periodDurations]);
 
   const savePeriodTime = () => {
     const duration = Number.parseInt(periodDurationInput, 10);
@@ -661,19 +716,10 @@ export default function TimetableScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <ThemedText themeColor="textSecondary" style={styles.summaryText}>
-              {courses.length ? `${selectedCourses.length} 门课程 · 第 ${selectedWeek} 周` : '还没有导入课程'}
+              {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '还没有导入课程'}
             </ThemedText>
           </View>
           <View style={styles.weekControls}>
-            <Pressable
-              onPress={() => commitWeek(selectedWeek - 1)}
-              disabled={selectedWeek === 1}
-              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === 1 && styles.disabledBtn]}
-              accessibilityRole="button"
-              accessibilityLabel="上一周"
-            >
-              <ThemedText style={{ color: theme.text }}>‹</ThemedText>
-            </Pressable>
             <TextInput
               value={weekInput}
               onChangeText={value => setWeekInput(value.replace(/[^0-9]/g, ''))}
@@ -685,15 +731,6 @@ export default function TimetableScreen() {
               accessibilityLabel="当前周次"
             />
             <ThemedText type="small" themeColor="textSecondary" style={styles.weekTotal}>/ {semesterWeeks}</ThemedText>
-            <Pressable
-              onPress={() => commitWeek(selectedWeek + 1)}
-              disabled={selectedWeek === semesterWeeks}
-              style={[styles.weekNavBtn, { backgroundColor: theme.backgroundElement }, selectedWeek === semesterWeeks && styles.disabledBtn]}
-              accessibilityRole="button"
-              accessibilityLabel="下一周"
-            >
-              <ThemedText style={{ color: theme.text }}>›</ThemedText>
-            </Pressable>
           </View>
         </View>
 
@@ -716,6 +753,8 @@ export default function TimetableScreen() {
                   theme={theme}
                   week={selectedWeek}
                   weekIsCurrent={selectedWeekIsCurrent}
+                  todayDay={todayDay}
+                  todayDateLabel={todayDateLabel}
                   monthLabel={monthStr}
                   semesterStartDate={semesterStartDate}
                   maxPeriods={maxPeriods}
@@ -741,6 +780,8 @@ export default function TimetableScreen() {
                       theme={theme}
                       week={neighborRight}
                       weekIsCurrent={false}
+                      todayDay={todayDay}
+                      todayDateLabel={todayDateLabel}
                       monthLabel={!semesterStartDate ? '' : formatMonth(semesterStartDate, neighborRight)}
                       semesterStartDate={semesterStartDate}
                       maxPeriods={maxPeriods}
@@ -765,6 +806,8 @@ export default function TimetableScreen() {
                       theme={theme}
                       week={neighborLeft}
                       weekIsCurrent={false}
+                      todayDay={todayDay}
+                      todayDateLabel={todayDateLabel}
                       monthLabel={!semesterStartDate ? '' : formatMonth(semesterStartDate, neighborLeft)}
                       semesterStartDate={semesterStartDate}
                       maxPeriods={maxPeriods}
@@ -1200,13 +1243,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 1,
   },
-  weekNavBtn: {
-    width: 22, height: 22,
-    borderRadius: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  disabledBtn: { opacity: 0.4 },
   weekInput: {
     width: 28, height: 22,
     borderWidth: 1,

@@ -1,5 +1,10 @@
 /**
- * Security utilities for file validation and input sanitization
+ * Security utilities for import-path file validation.
+ *
+ * The parse-side helpers that used to live here (timeout/limiter/HTML
+ * escape/text sanitize) died with the anydoc migration: the Rust engine
+ * runs off the JS thread and the recognizer clamps complexity at the IR
+ * boundary. Only the whitelist + size/URI checks remain.
  */
 
 // Allowed file types for import. anydoc (the Rust engine) parses all of
@@ -101,9 +106,3 @@ export function validateBufferSize(buffer: ArrayBuffer | Uint8Array): { valid: b
   }
   return { valid: true };
 }
-
-
-
-
-
-
