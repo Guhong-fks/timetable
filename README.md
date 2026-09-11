@@ -28,7 +28,7 @@
 
 ### ⏱️ 节次时间配置
 
-- 支持 1~13 节：1-2、3-4、5-6、7-8 组合节，以及 8~13 各单节（如 9 节、12 节）。
+- 支持 1~13 节。
 - 点击左侧时间列的任意节次，弹窗编辑开始时间和课程时长（分钟），配置本地持久化。
 - 默认每节 45 分钟、间隔 5 分钟，从 08:00 开始自动计算。
 
@@ -64,11 +64,11 @@
 | 构建 | EAS Build（development / preview / production 三套 Profile） |
 | 测试 | Jest 29 + ts-jest，含 golden fixture 对比测试 |
 
-> 原 `mammoth`/`xlsx` JS 解析链已由 Rust 引擎 `react-native-anydoc` 取代（on-device 解析、无服务端）。
+
 
 ## 课表文件格式
 
-使用学校教务系统导出的课表模板（正方 / 强智 / 教务自研等均已验证）：
+使用学校教务系统导出的课表模板：
 
 - 位置优先识别：表格中的星期 / 节次由**网格位置**推导，单元格文本（周次、教师、地点）只做补充。
 - 课程单元格通常包含：课程代码、课程名称、周次范围、地点、教师（缺失字段自动降级并提示）。
@@ -112,33 +112,7 @@ npx expo-doctor       # Expo 配置健康检查
 npm test              # Jest 单元测试
 ```
 
-## 打包 Android（EAS）
 
-```bash
-npm install -g eas-cli
-eas login
-eas build:configure
-```
-
-生成可直接安装的内部测试 APK：
-
-```bash
-eas build --platform android --profile preview
-```
-
-生成 Google Play 上架包（AAB）：
-
-```bash
-eas build --platform android --profile production
-```
-
-| Profile | 用途 | 产物 |
-| --- | --- | --- |
-| `development` | 含 Dev Client 的调试包 | APK |
-| `preview` | 内部测试 / 体验 | Release APK |
-| `production` | Google Play 上架 | Release AAB |
-
-构建完成后 EAS 会提供下载链接，运行时通过 `runtimeVersion: appVersion` 关联 OTA 更新（`expo-updates`）。
 
 ## 项目结构
 
@@ -166,14 +140,7 @@ eas.json                 EAS 构建 Profile
 assets/                  图标、启动图
 ```
 
-## 存储迁移
 
-应用经历了 v1 → v2 → v3 → v4 四次存储格式迭代，每次迁移通过 `src/state/timetable/migrate.ts` 自动处理：
-
-- **v3**：移除 `code` / `classes` 字段，`location` 从 `{ campus, building, room }` 合并为 `{ address }`。
-- **v4**：将旧的 `(weekPattern, specificWeeks)` 对合并为新的 `(weekList, isOddEven)` 对。
-
-旧数据自动升级，无需用户干预。
 
 ## 安全说明
 
