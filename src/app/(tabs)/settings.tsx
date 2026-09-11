@@ -1,4 +1,5 @@
-import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, View, Alert } from 'react-native';
+import { useState, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
@@ -6,10 +7,56 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTimetable } from '@/state/timetable';
 import { useAppTheme } from '@/state/theme-context';
+import { requestNotificationPermissions } from '@/lib/notifications';
+import { sendTestNotification } from '@/lib/test-notification';
+import { getStoredValue, setStoredValue } from '@/lib/storage';
+
+const NOTIFICATION_ENABLED_KEY = 'course-table-app.notifications.enabled.v1';
+const PERIOD_TIMES_KEY = 'course-table-app.period-times.v2';
+const PERIOD_DURATIONS_KEY = 'course-table-app.period-durations.v1';
 
 export default function SettingsScreen() {
   const { mode, setMode } = useAppTheme();
-  const { clearCourses, courses, importedFileName } = useTimetable();
+  const { clearCourses, courses, importedFileName, semesterStartDate } = useTimetable();
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+  // 加载通知设置
+  useEffect(() => {
+    void (async () => {
+      const saved = await getStoredValue(NOTIFICATION_ENABLED_KEY);
+      if (saved !== null) {
+        setNotificationsEnabled(JSON.parse(saved));
+      }
+    })();
+  }, []);
+
+  const toggleNotifications = async (enabled: boolean) => {
+    if (enabled) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        // 权限被拒绝，不更新状态
+        return;
+      }
+    }
+    setNotificationsEnabled(enabled);
+    await setStoredValue(NOTIFICATION_ENABLED_KEY, JSON.stringify(enabled));
+  };
+
+  const handleTestNotification = async () => {
+    try {
+      const [savedTimes, savedDurations] = await Promise.all([
+        getStoredValue(PERIOD_TIMES_KEY),
+        getStoredValue(PERIOD_DURATIONS_KEY),
+      ]);
+      const periodTimes = savedTimes ? { ...JSON.parse(savedTimes) } : {};
+      const periodDurations = savedDurations ? { ...JSON.parse(savedDurations) } : {};
+      
+      const result = await sendTestNotification(courses, semesterStartDate, periodTimes, periodDurations);
+      Alert.alert(result.success ? '成功' : '失败', result.message);
+    } catch (error) {
+      Alert.alert('错误', '发送测试通知失败：' + (error as Error).message);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -43,6 +90,25 @@ export default function SettingsScreen() {
                 onValueChange={() => setMode('auto')}
               />
             </View>
+          </ThemedView>
+
+          <ThemedView type="backgroundElement" style={styles.section}>
+            <ThemedText type="subtitle">提醒</ThemedText>
+
+            <View style={styles.optionRow}>
+              <ThemedText>上课前15分钟提醒</ThemedText>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={toggleNotifications}
+              />
+            </View>
+
+            {courses.length > 0 && notificationsEnabled && (
+              <Pressable onPress={handleTestNotification} style={styles.testButton}>
+                <Ionicons name="flask-outline" size={16} color="#4A90D9" style={styles.testIcon} />
+                <ThemedText style={styles.testText}>发送测试通知（15秒后弹出）</ThemedText>
+              </Pressable>
+            )}
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.section}>
@@ -87,4 +153,7 @@ const styles = StyleSheet.create({
   destructiveButton: { padding: Spacing.two, borderWidth: 1, borderColor: '#E57373', alignItems: 'center', borderRadius: Spacing.two, marginTop: Spacing.two, flexDirection: 'row', gap: Spacing.one },
   destructiveIcon: {},
   destructiveText: { color: '#E57373', fontWeight: '600' },
+  testButton: { padding: Spacing.two, borderWidth: 1, borderColor: '#4A90D9', alignItems: 'center', borderRadius: Spacing.two, marginTop: Spacing.two, flexDirection: 'row', gap: Spacing.one, backgroundColor: '#E6F4FE' },
+  testIcon: {},
+  testText: { color: '#4A90D9', fontWeight: '600' },
 });

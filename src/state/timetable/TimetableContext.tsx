@@ -1,9 +1,13 @@
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo } from 'react';
+import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { ScheduledCourse, TimetableData } from '@/types/timetable';
 import type { ImportReport } from './types';
 import { useTimetableStore } from './useTimetableStore';
 import { useDebouncedPersist } from './useDebouncedPersist';
 import { loadSnapshot } from './storage';
+import { initializeNotifications, scheduleAllNotifications, updateCourseNotifications, deleteCourseNotifications } from '@/lib/notifications';
+import { getStoredValue, setStoredValue } from '@/lib/storage';
+
+const NOTIFICATION_ENABLED_KEY = 'course-table-app.notifications.enabled.v1';
 
 interface ContextValue {
   courses: ScheduledCourse[];
@@ -43,6 +47,15 @@ const TimetableContext = createContext<ContextValue | null>(null);
  */
 export function TimetableProvider({ children }: PropsWithChildren) {
   const store = useTimetableStore();
+  const [notificationsInitialized, setNotificationsInitialized] = useState(false);
+
+  // Initialize notifications once on mount
+  useEffect(() => {
+    void (async () => {
+      await initializeNotifications();
+      setNotificationsInitialized(true);
+    })();
+  }, []);
 
   // Hydrate once on mount. The store setters are stable (wrapped in
   // `useCallback`), so depending on them in this effect would still
@@ -68,6 +81,27 @@ export function TimetableProvider({ children }: PropsWithChildren) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Schedule notifications when courses change (after hydration)
+  useEffect(() => {
+    if (!store.isHydrated || !notificationsInitialized) return;
+    
+    void (async () => {
+      const saved = await getStoredValue(NOTIFICATION_ENABLED_KEY);
+      const enabled = saved !== null ? JSON.parse(saved) : false;
+      
+      if (enabled && store.snapshot.semesterStartDate) {
+        await scheduleAllNotifications(
+          store.snapshot.courses,
+          store.snapshot.semesterStartDate,
+          // 这些需要从 index.tsx 传递，或者我们从存储中读取
+          // 暂时使用默认值，实际应用中需要从 period times 存储读取
+          {} as Record<number, string>,
+          {} as Record<number, number>
+        );
+      }
+    })();
+  }, [store.isHydrated, notificationsInitialized, store.snapshot.courses, store.snapshot.semesterStartDate]);
 
   // Persist (gated by hydration). No-ops before hydration completes.
   useDebouncedPersist(store.snapshot, { enabled: store.isHydrated });

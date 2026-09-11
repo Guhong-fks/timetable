@@ -15,6 +15,7 @@ import { getStoredValue, setStoredValue } from '@/lib/storage';
 import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse, type TimetableData, type WeekDay, TimeSlot } from '@/types/timetable';
 import type { ReportWarning } from '@/lib/reporting/types';
 import type { ImportReport } from '@/state/timetable';
+import { useDeepLink } from '@/state/deep-link-context';
 
 // Compact layout constants for mobile timetable
 // Day-column width: wide screens (≥ ~392dp) keep full 52px columns (fits
@@ -335,10 +336,10 @@ export default function TimetableScreen() {
     recomputeBounds();
   }, [recomputeBounds]);
   const onContainerMeasured = useCallback((e: LayoutChangeEvent) => {
-    containerHeightRef.current = e.nativeEvent.layout.height;
-    surfaceWidthRef.current = e.nativeEvent.layout.width;
-    recomputeBounds();
-  }, [recomputeBounds]);
+      containerHeightRef.current = e.nativeEvent.layout.height;
+      surfaceWidthRef.current = e.nativeEvent.layout.width;
+      recomputeBounds();
+    }, [recomputeBounds]);
 
     const [selectedCourse, setSelectedCourse] = useState<ScheduledCourse | null>(null);
     /** Course being edited (edit modal). Opening it closes the detail
@@ -357,8 +358,25 @@ export default function TimetableScreen() {
     /** Controls the "解析详情" modal. */
     const [reportDetailOpen, setReportDetailOpen] = useState(false);
 
-  // Auto-jump to current week based on today's date
-  const jumpToCurrentWeek = useCallback(() => {
+    // Deep link handling
+    const { consumePendingDeepLink } = useDeepLink();
+    useEffect(() => {
+      const deepLink = consumePendingDeepLink();
+      if (deepLink?.course) {
+        // Navigate to the correct week first
+        if (deepLink.week >= 1 && deepLink.week <= semesterWeeks) {
+          startTransition(() => {
+            setSelectedWeek(deepLink.week);
+            setWeekInput(String(deepLink.week));
+          });
+        }
+        // Then open the course detail modal
+        setSelectedCourse(deepLink.course);
+      }
+    }, [consumePendingDeepLink, semesterWeeks]);
+
+    // Auto-jump to current week based on today's date
+    const jumpToCurrentWeek = useCallback(() => {
     if (!semesterStartDate) return;
     const start = parseLocalDate(semesterStartDate);
     if (!start) return;
