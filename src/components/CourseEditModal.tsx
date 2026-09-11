@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 import { Spacing, Colors } from '@/constants/theme';
@@ -134,16 +134,21 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
 
   return (
     <Modal visible={true} onRequestClose={onClose} animationType="fade" transparent={true}>
-      <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[styles.sheet, { backgroundColor: theme.backgroundElement }]}>
-          <View style={styles.header}>
-            <ThemedText type="title" style={styles.title}>{mode === 'create' ? '添加课程' : '编辑课程'}</ThemedText>
-            <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
-              <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoiding}
+        keyboardVerticalOffset={0}
+      >
+        <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+          <View style={[styles.sheet, { backgroundColor: theme.backgroundElement }]}>
+            <View style={styles.header}>
+              <ThemedText type="title" style={styles.title}>{mode === 'create' ? '添加课程' : '编辑课程'}</ThemedText>
+              <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="关闭">
+                <ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText>
+              </Pressable>
+            </View>
 
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
             {/* Name */}
             <ThemedText type="smallBold" style={styles.fieldLabel}>课程名称</ThemedText>
             <TextInput
@@ -259,34 +264,35 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
             />
 
             {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-          </ScrollView>
+            </ScrollView>
 
-          <View style={styles.actions}>
-            {mode === 'edit' && (
-              <Pressable onPress={() => setConfirmScope('this')} style={[styles.actionBtn, styles.deleteBtn]} accessibilityRole="button" accessibilityLabel="删除课程">
-                <ThemedText style={styles.deleteText}>删除</ThemedText>
-              </Pressable>
-            )}
-            <View style={styles.actionsRight}>
-              <Pressable onPress={onClose} style={[styles.actionBtn, { backgroundColor: theme.background }]}>
-                <ThemedText themeColor="textSecondary">取消</ThemedText>
-              </Pressable>
-              <Pressable onPress={save} style={[styles.actionBtn, { backgroundColor: theme.backgroundSelected }]} accessibilityRole="button" accessibilityLabel="保存课程信息">
-                <ThemedText type="smallBold">保存</ThemedText>
-              </Pressable>
+            <View style={styles.actions}>
+              {mode === 'edit' && (
+                <Pressable onPress={() => setConfirmScope('this')} style={[styles.actionBtn, styles.deleteBtn]} accessibilityRole="button" accessibilityLabel="删除课程">
+                  <ThemedText style={styles.deleteText}>删除</ThemedText>
+                </Pressable>
+              )}
+              <View style={styles.actionsRight}>
+                <Pressable onPress={onClose} style={[styles.actionBtn, { backgroundColor: theme.background }]}>
+                  <ThemedText themeColor="textSecondary">取消</ThemedText>
+                </Pressable>
+                <Pressable onPress={save} style={[styles.actionBtn, { backgroundColor: theme.backgroundSelected }]} accessibilityRole="button" accessibilityLabel="保存课程信息">
+                  <ThemedText type="smallBold">保存</ThemedText>
+                </Pressable>
+              </View>
             </View>
           </View>
+          {confirmScope !== null && (
+            <DeleteConfirmSheet
+              course={course}
+              scope={confirmScope}
+              sameNameCount={sameNameCount}
+              onConfirm={(scope) => { setConfirmScope(null); onDelete?.(scope); }}
+              onCancel={() => setConfirmScope(null)}
+            />
+          )}
         </View>
-        {confirmScope !== null && (
-          <DeleteConfirmSheet
-            course={course}
-            scope={confirmScope}
-            sameNameCount={sameNameCount}
-            onConfirm={(scope) => { setConfirmScope(null); onDelete?.(scope); }}
-            onCancel={() => setConfirmScope(null)}
-          />
-        )}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -461,6 +467,9 @@ const confirmStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  keyboardAvoiding: {
+    flex: 1,
+  },
   overlay: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
@@ -472,7 +481,7 @@ const styles = StyleSheet.create({
   sheet: {
     width: '100%',
     maxWidth: 340,
-    maxHeight: '85%',
+    maxHeight: '90%',
     borderRadius: 16,
     paddingBottom: Spacing.three,
     overflow: 'hidden',

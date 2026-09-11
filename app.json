@@ -15,7 +15,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.fksguh.coursetableapp"
+      "package": "com.fksguh.coursetableapp",
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "output": "static",
