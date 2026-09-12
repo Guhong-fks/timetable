@@ -14,6 +14,7 @@ import com.fksguh.coursetableapp.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import kotlin.math.roundToInt
 
 /**
  * 课表桌面小组件 Provider。
@@ -57,34 +58,48 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         private const val PERIOD_STEP_MINUTES = 50
         private const val DEFAULT_PERIOD_MINUTES = 45
 
+        /**
+         * 桌面网格单元高度（dp/格）。由实测推算：3×2 小组件 options 高度 ≈ 183dp
+         * （2 格）→ 约 91.5dp/格。课程显示上限按“高度格子数”决定：
+         * 2 格至多 2 节、3 格至多 3 节（横排同样受此限制）。
+         */
+        private const val CELL_HEIGHT_DP = 91.5f
+
         private val DAY_KEYS = arrayOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
         )
         private val WEEKDAY_CN = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
 
-        /** 竖排卡片视图组（容器 / 左侧色条 / 课程名 / 补充信息） */
+        /** 竖排卡片视图组（容器 / 左侧色条 / 课程名 / 补充信息），最多 6 门课 */
         private val V_CONTAINERS = intArrayOf(
-            R.id.course1_container, R.id.course2_container, R.id.course3_container
+            R.id.course1_container, R.id.course2_container, R.id.course3_container,
+            R.id.course4_container, R.id.course5_container, R.id.course6_container
         )
         private val V_ACCENTS = intArrayOf(
-            R.id.course1_accent, R.id.course2_accent, R.id.course3_accent
+            R.id.course1_accent, R.id.course2_accent, R.id.course3_accent,
+            R.id.course4_accent, R.id.course5_accent, R.id.course6_accent
         )
         private val V_NAMES = intArrayOf(
-            R.id.course1_name, R.id.course2_name, R.id.course3_name
+            R.id.course1_name, R.id.course2_name, R.id.course3_name,
+            R.id.course4_name, R.id.course5_name, R.id.course6_name
         )
         private val V_METAS = intArrayOf(
-            R.id.course1_meta, R.id.course2_meta, R.id.course3_meta
+            R.id.course1_meta, R.id.course2_meta, R.id.course3_meta,
+            R.id.course4_meta, R.id.course5_meta, R.id.course6_meta
         )
 
-        /** 横排卡片视图组（宽屏模式） */
+        /** 横排卡片视图组（宽屏模式），最多 6 列 */
         private val H_CONTAINERS = intArrayOf(
-            R.id.hcourse1_container, R.id.hcourse2_container, R.id.hcourse3_container
+            R.id.hcourse1_container, R.id.hcourse2_container, R.id.hcourse3_container,
+            R.id.hcourse4_container, R.id.hcourse5_container, R.id.hcourse6_container
         )
         private val H_NAMES = intArrayOf(
-            R.id.hcourse1_name, R.id.hcourse2_name, R.id.hcourse3_name
+            R.id.hcourse1_name, R.id.hcourse2_name, R.id.hcourse3_name,
+            R.id.hcourse4_name, R.id.hcourse5_name, R.id.hcourse6_name
         )
         private val H_METAS = intArrayOf(
-            R.id.hcourse1_meta, R.id.hcourse2_meta, R.id.hcourse3_meta
+            R.id.hcourse1_meta, R.id.hcourse2_meta, R.id.hcourse3_meta,
+            R.id.hcourse4_meta, R.id.hcourse5_meta, R.id.hcourse6_meta
         )
 
         /**
@@ -162,6 +177,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         // 一律竖排，两门课即两行铺满——收紧触发条件，避免 3×2 被误判成横排，
         // 让课卡变成两列窄条而破坏“两行铺满”效果。
         val wide = width >= height * 2.5f && height < 200
+        // 高度格子数 = 显示课程数上限：2 格至多 2 节、3 格至多 3 节、4~6 格对应 4~6 节，
+        // 封顶 6 节（竖排与横排一致）
+        val heightCells = (height / CELL_HEIGHT_DP).roundToInt().coerceIn(1, 6)
         val courses = widgetData.courses
 
         // 单科（且非横排）时切换固定高度布局：卡片 56dp 固定、下方留白，
@@ -174,7 +192,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
         Log.d(
             "TimetableWidget",
-            "id=$appWidgetId w=${width} h=${height} wide=$wide courses=${courses.size} week=${widgetData.week} single=$useSingleLayout"
+            "id=$appWidgetId w=${width} h=${height} cells=$heightCells wide=$wide courses=${courses.size} week=${widgetData.week} single=$useSingleLayout"
         )
 
         // 头部：周次徽标 + 日期；过矮时隐藏日期行（标题上移、留更多空间给课程）
@@ -203,8 +221,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.hcourse_row, View.VISIBLE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
                 setGone(views, V_CONTAINERS)
-                for (i in 0 until 3) {
-                    if (i < courses.size) {
+                // 横排列数同样受高度格子数限制（2 格至多 2 列）
+                for (i in 0 until 6) {
+                    if (i < courses.size && i < heightCells) {
                         val palette = COURSE_PALETTE[courseHueIndex(courses[i]["name"] ?: "")]
                         views.setViewVisibility(H_CONTAINERS[i], View.VISIBLE)
                         views.setInt(H_CONTAINERS[i], "setBackgroundResource", palette.bgRes)
@@ -218,13 +237,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             else -> {
                 views.setViewVisibility(R.id.hcourse_row, View.GONE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
-                // 卡片用 weight 平分高度铺满；按高度决定竖排显示 1~3 门课
-                val maxCount = when {
-                    height >= 235 -> 3
-                    height >= 145 -> 2
-                    else -> 1
-                }
-                for (i in 0 until 3) {
+                // 卡片用 weight 平分高度铺满；显示上限 = 高度格子数（2 格至多 2 节、3 格至多 3 节）
+                val maxCount = heightCells
+                for (i in 0 until 6) {
                     if (i < courses.size && i < maxCount) {
                         val palette = COURSE_PALETTE[courseHueIndex(courses[i]["name"] ?: "")]
                         views.setViewVisibility(V_CONTAINERS[i], View.VISIBLE)

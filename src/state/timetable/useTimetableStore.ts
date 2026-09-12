@@ -10,7 +10,7 @@ import {
   DEFAULT_MAX_PERIODS,
 } from '@/types/timetable';
 import type { ImportReport, TimetableSnapshot } from './types';
-import { writeWidgetData, getCurrentWeek } from '@/lib/widget-data';
+import { writeWidgetData, getCurrentWeek, type WidgetCourseData } from '@/lib/widget-data';
 
 /**
  * The reactive store behind the timetable context. Holds the six pieces
@@ -157,7 +157,22 @@ export function useTimetableStore(): TimetableStore {
   // truth for 课表变化 -> 同步桌面小组件.
   useEffect(() => {
     if (!isHydrated) return;
-    writeWidgetData(snapshot.courses as any, getCurrentWeek(snapshot.semesterStartDate), snapshot.semesterStartDate);
+    // Explicit projection: ScheduledCourse carries fields the native widget
+    // payload doesn't need (duration/note/colorOverride); map them away so
+    // the write path is type-checked instead of `as any`.
+    const widgetCourses: WidgetCourseData[] = snapshot.courses.map((c) => ({
+      id: c.id,
+      name: c.name,
+      day: c.day,
+      timeSlot: c.timeSlot,
+      startPeriod: c.startPeriod,
+      endPeriod: c.endPeriod,
+      location: c.location,
+      teacher: c.teacher,
+      weekList: c.weekList,
+      isOddEven: c.isOddEven,
+    }));
+    writeWidgetData(widgetCourses, getCurrentWeek(snapshot.semesterStartDate), snapshot.semesterStartDate);
   }, [isHydrated, snapshot]);
 
   return {

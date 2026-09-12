@@ -3,28 +3,8 @@ import { KeyboardAvoidingView, Modal, Pressable, Platform, ScrollView, StyleShee
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 import { Spacing, Colors } from '@/constants/theme';
+import { COURSE_PALETTE, courseHue } from '@/lib/course-palette';
 import { periodsArray, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
-
-/** Same pastel palette as the grid renderer (index.tsx COURSE_PALETTE).
- * Kept in sync manually; both read the same #RRGGBB hexes. */
-const COURSE_PALETTE = [
-  '#4A90D9', // blue
-  '#5BAE6E', // green
-  '#E0913C', // orange
-  '#9B6FD4', // purple
-  '#D96A9C', // pink
-  '#42AFA5', // teal
-  '#C9A227', // gold
-  '#6C7BD9', // indigo
-];
-
-/** Rederive the name-hash hue so "默认" (no override) shows the color the
- * card would render with. Must match courseHue in index.tsx. */
-function courseHue(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return COURSE_PALETTE[hash % COURSE_PALETTE.length];
-}
 
 export interface CourseEditModalProps {
   course: ScheduledCourse;

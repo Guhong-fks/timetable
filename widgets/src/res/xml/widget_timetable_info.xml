@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     尺寸策略：
-    - 最小 2×2 格：minWidth / minHeight 按标准公式 2×70-30=110dp；
-      Android 12+ 通过 targetCellWidth/Height=2 把默认大小设为 2×2。
+    - 最小 3 格宽：targetCellWidth=3（Android 12+ 桌面按 3 格计算最小宽度），
+      minWidth 按实测 3 格对应 dp 设置（本设备 ColorOS 重算的 3 格宽 ≈ 190dp）。
+    - 高度保持 2 格起（minHeight 110dp），课程显示上限由高度格子数决定
+      （2 格至多 2 节、3 格至多 3 节 … 封顶 6 节）。
     - 最大尺寸不设死上限（maxResize 给到远超手机屏幕的 500×1000dp，
-      实际由各手机桌面/启动器按可用网格自行钳制到整屏），
-      因此用户可以把小组件拉大到手机桌面允许的最大宽度与高度。
+      实际由各手机桌面/启动器按可用网格自行钳制到整屏）。
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="110dp"
+    android:minWidth="190dp"
     android:minHeight="110dp"
-    android:minResizeWidth="110dp"
+    android:minResizeWidth="190dp"
     android:minResizeHeight="110dp"
-    android:targetCellWidth="2"
+    android:targetCellWidth="3"
     android:targetCellHeight="2"
     android:maxResizeWidth="500dp"
     android:maxResizeHeight="1000dp"

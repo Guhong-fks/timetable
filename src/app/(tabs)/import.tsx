@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { ImportPreview } from '@/components/ImportPreview';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { parseTimetableFile, isNativeBridgeAvailable, ImportDiagnosticsError, setIcsSemesterStartDate } from '@/lib/importers/timetable-importer';
+import { parseTimetableFile, isNativeBridgeAvailable, ImportDiagnosticsError } from '@/lib/importers/timetable-importer';
 import { useTimetable } from '@/state/timetable';
 import { useTheme } from '@/hooks/use-theme';
 import type { ScheduledCourse } from '@/types/timetable';
@@ -68,8 +68,8 @@ export default function ImportScreen() {
     setLastImportTime(now);
     try {
       // ICS 周次换算依赖学期开始日期（week-1 Monday）；docx/xlsx 不使用。
-      setIcsSemesterStartDate(startDateInput);
-      const result = await parseTimetableFile(file);
+      // 通过参数显式传入，不依赖 importer 模块级状态。
+      const result = await parseTimetableFile(file, startDateInput);
       // Route through the preview: the user confirms/fixes the recognized
       // list before anything touches the store.
       setPending({

@@ -1,17 +1,17 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { ScheduledCourse } from '@/types/timetable';
-import { scheduleCourseNotification, requestNotificationPermissions } from '@/lib/notifications';
+import { requestNotificationPermissions, getDefaultPeriodStartMinutes, getDefaultPeriodDuration } from '@/lib/notifications';
 
 /**
- * 测试专用：随机选取一门课程并调度 15 分钟后的测试通知
+ * 测试专用：随机选取一门课程并立即推送一条测试通知
  * 仅用于开发调试，发版前请删除或注释掉调用处
  */
 export async function sendTestNotification(
   courses: ScheduledCourse[],
   semesterStartDate: string | undefined,
   periodTimes: Record<number, string>,
-  periodDurations: Record<number, number>
+  periodDurations: Record<number, number>,
 ): Promise<{ success: boolean; message: string }> {
   if (Platform.OS === 'web') {
     return { success: false, message: 'Web 端不支持本地通知测试' };
@@ -55,24 +55,24 @@ export async function sendTestNotification(
 
   const startMinutes = (() => {
     const startTime = periodTimes[randomCourse.startPeriod];
-    if (!startTime) return 0;
+    if (!startTime) return getDefaultPeriodStartMinutes(randomCourse.startPeriod);
     const [hours, minutes] = startTime.split(':').map(Number);
     return hours * 60 + minutes;
   })();
 
-  // 测试通知：15 秒后触发（而非上课前 15 分钟）
-  const notificationTime = new Date();
-  notificationTime.setSeconds(notificationTime.getSeconds() + 15);
-
+  // 测试通知：立即推送（channelId 触发器表示立即投递，走 class-reminders 频道，
+  // 声音/震动跟随系统对该应用的通知设置）
   const identifier = `test-notification-${randomCourse.id}-${Date.now()}`;
   
   await Notifications.cancelScheduledNotificationAsync(identifier);
 
   const endMinutes = (() => {
     const startTime = periodTimes[randomCourse.endPeriod];
-    if (!startTime) return 0;
+    if (!startTime) {
+      return getDefaultPeriodStartMinutes(randomCourse.endPeriod) + getDefaultPeriodDuration();
+    }
     const [hours, minutes] = startTime.split(':').map(Number);
-    const duration = periodDurations[randomCourse.endPeriod] ?? 45;
+    const duration = periodDurations[randomCourse.endPeriod] ?? getDefaultPeriodDuration();
     return hours * 60 + minutes + duration;
   })();
 
@@ -88,6 +88,8 @@ export async function sendTestNotification(
     content: {
       title: `[测试] ${randomCourse.name}`,
       body: `${timeRange} · ${randomCourse.location.address || '未填写'} · ${randomCourse.teacher.name || '未填写'}`,
+      // 使用系统默认声音，具体声音/震动由系统通知设置管理
+      sound: 'default',
       data: {
         type: 'class-reminder',
         courseId: randomCourse.id,
@@ -96,14 +98,12 @@ export async function sendTestNotification(
       priority: Notifications.AndroidNotificationPriority.HIGH,
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: notificationTime,
       channelId: 'class-reminders',
     },
   });
 
   return { 
     success: true, 
-    message: `测试通知已调度：${randomCourse.name}（${testWeek}周 ${randomCourse.day} 第${randomCourse.startPeriod}-${randomCourse.endPeriod}节），15 秒后弹出` 
+    message: `测试通知已推送：${randomCourse.name}（${testWeek}周 ${randomCourse.day} 第${randomCourse.startPeriod}-${randomCourse.endPeriod}节）` 
   };
 }

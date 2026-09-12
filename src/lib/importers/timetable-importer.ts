@@ -281,7 +281,7 @@ type TimetableFile =
   | { name: string; size?: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> }
   | { name: string; size?: number; type?: string; uri: string };
 
-export async function parseTimetableFile(file: TimetableFile): Promise<ImportResult> {
+export async function parseTimetableFile(file: TimetableFile, icsSemesterStartInput?: string): Promise<ImportResult> {
   const validation = validateFile(file);
   if (!validation.valid) throw new Error(validation.error);
 
@@ -292,7 +292,8 @@ export async function parseTimetableFile(file: TimetableFile): Promise<ImportRes
 
   const lower = file.name.toLowerCase();
   if (lower.endsWith('.ics')) {
-    return parseIcsFile(buffer);
+    const icsSemesterStart = icsSemesterStartInput && icsSemesterStartInput.trim() ? icsSemesterStartInput.trim() : undefined;
+    return parseIcsFile(buffer, icsSemesterStart);
   }
   if (lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.xlsx')) {
     return parseDocxFile(buffer);
@@ -320,7 +321,7 @@ function decodeIcsText(buffer: ArrayBuffer): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
 }
 
-async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
+async function parseIcsFile(buffer: ArrayBuffer, icsSemesterStart?: string): Promise<ImportResult> {
   const report = ParseReport.getInstance();
   report.clear();
 
@@ -331,7 +332,7 @@ async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
     throw new Error('文件编码无法识别，请用 UTF-8 编码重新导出 .ics 文件');
   }
 
-  const { courses, warnings, inferredSemesterStart } = parseIcsTimetable(text, semesterStartForIcs());
+  const { courses, warnings, inferredSemesterStart } = parseIcsTimetable(text, icsSemesterStart);
 
   for (const w of warnings) {
     report.addWarningFromParts(w.category, w.severity, w.message, undefined, w.raw);
@@ -351,17 +352,10 @@ async function parseIcsFile(buffer: ArrayBuffer): Promise<ImportResult> {
 }
 
 /**
- * 学期开始日期对 ICS 是硬依赖（week-1 Monday 换算周次）。当前 import.tsx
- * 把它存在组件状态里，未暴露到 importer 层；导入页在调用 parseTimetableFile
- * 前通过 setIcsSemesterStartDate 注入（见 import.tsx）。
+ * 学期开始日期对 ICS 是硬依赖（week-1 Monday 换算周次）。由调用方通过
+ * parseTimetableFile(file, icsSemesterStartInput) 显式传入（见 import.tsx），
+ * 不再依赖模块级可变状态。
  */
-let icsSemesterStartDate: string | undefined;
-export function setIcsSemesterStartDate(date: string | undefined): void {
-  icsSemesterStartDate = date && date.trim() ? date.trim() : undefined;
-}
-function semesterStartForIcs(): string | undefined {
-  return icsSemesterStartDate;
-}
 
 async function readNativeFile(file: { name: string; size?: number; uri: string }): Promise<ArrayBuffer> {
   // fetch() cannot read `content://` URIs (OkHttp casts to java.net.URL and

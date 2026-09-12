@@ -1,10 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getStoredValue } from '@/lib/storage';
-
-/** 节次时间/时长存储 key（与 index.tsx / settings.tsx 保持一致） */
-const PERIOD_TIMES_KEY = 'course-table-app.period-times.v2';
-const PERIOD_DURATIONS_KEY = 'course-table-app.period-durations.v1';
+import { PERIOD_TIMES_KEY, PERIOD_DURATIONS_KEY } from '@/constants/storage-keys';
 
 /**
  * 惰性获取 expo-widgets 原生模块。

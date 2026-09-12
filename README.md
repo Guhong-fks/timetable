@@ -23,6 +23,7 @@
   - 正文：上课时间段（如 `08:00-09:30`）、上课地点、教师
 - **点击跳转**：点击通知直接打开 App 并跳转到对应周次的课程详情卡片（自动切周、弹出详情）。
 - **自动调度**：导入课表、修改学期开始日期、编辑/删除课程后自动重算并重新调度；通知仅针对当前学期已开启周次，过期自动清理。
+- **节次时间联动**：提醒时间读取设置页配置的节次时间（`period-times.v2` / `period-durations.v1`）；未配置时回退默认规则（08:00 起 45 分钟/节），保证"课前 15 分钟"始终按真实上课时间触发。
 - **持久化**：设置状态存入 `AsyncStorage`，重启后自动恢复调度。
 
 ### 📅 周次课表视图
@@ -49,6 +50,11 @@
 - 点击卡片弹出详情：上课时间（节次范围 + 具体时间段）、地点、教师、周次（全周 / 单双周 / 指定周范围）、备注；详情内可直接编辑课程。
 - 深色模式使用统一卡片配色（单一材质色 + 同色系描边），保证对比度与整体观感。
 
+### 📱 桌面小部件（Android App Widget）
+
+- 原生 Kotlin 实现的桌面小组件，展示当前周每日课程；源码唯一真源在 `widgets/` 目录，由 `@bittingz/expo-widgets` 配置插件在 prebuild 时复制并替换包名生成到 `android/`（CNG 模式，`android/` 不入库）。
+- 课表变化（导入/编辑/删除）后自动同步小组件数据，支持点击课程卡片跳转 App。
+
 ### 🌗 主题与设置
 
 - 浅色 / 深色 / 跟随系统三种模式，配置持久化。
@@ -65,7 +71,7 @@
 
 | 层 | 选型 |
 | --- | --- |
-| 框架 | Expo SDK 57.0.20、React Native 0.86.3、React 19.2.3 |
+| 框架 | Expo SDK 57、React Native 0.86.3、React 19.2.3 |
 | 语言 | TypeScript 6.0.3（strict 模式） |
 | 路由 | Expo Router（基于文件系统的路由 + typedRoutes） |
 | 状态 | React Hooks + AsyncStorage（v1→v4 存储迁移） |
@@ -130,13 +136,17 @@ npm test              # Jest 单元测试
 src/
 ├─ app/                  Expo Router 页面与 Tab 导航
 │  └─ (tabs)/            Tab 页：课表、导入、设置
-├─ components/           主题化 UI 组件（ErrorBoundary、themed-text/view、CourseEditModal、ImportPreview）
-├─ constants/            主题色、布局常量
+├─ components/           主题化 UI 组件（ErrorBoundary、themed-text/view、CourseEditModal、ImportPreview、PeriodTimeModal）
+├─ constants/            主题色、布局常量、存储 key（theme、storage-keys）
 ├─ hooks/                React Hooks（useTheme、useTimetablePanGesture）
 ├─ lib/
 │  ├─ engine/            解析引擎：tableGrid、cellReader、recognizer、parseDiagnostics
 │  ├─ importers/         导入管线：timetable-importer、ics-parser、parsers
 │  ├─ reporting/         导入报告生成（CourseWarning）
+│  ├─ course-palette.ts  课程卡片调色板（网格与编辑弹窗共享）
+│  ├─ period-format.ts   节次默认值 / 时间与周次格式化工具
+│  ├─ notifications.ts   课程提醒调度（默认节次回退 + 用户配置节次时间）
+│  ├─ widget-data.ts     桌面小组件数据同步
 │  ├─ security.ts        导入文件校验（白名单 / 大小 / URI 协议）
 │  └─ storage.ts         AsyncStorage 封装（超时保护）
 ├─ state/
@@ -169,9 +179,7 @@ assets/                  图标、启动图
 - [x] 导入预览与人工修正（确认后才落库）
 - [x] 解析诊断导出（识别失败时分享 IR 现场供反馈）
 - [x] 课程提醒（上课前 15 分钟本地通知）
-- [ ] 多学期切换
-- [ ] 课表导出（图片 / PDF）
-- [ ] 桌面小部件（Android App Widget）
+- [x] 桌面小部件（Android App Widget）
 
 ## 许可证
 

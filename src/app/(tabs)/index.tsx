@@ -8,11 +8,25 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing, GridLineAlpha } from '@/constants/theme';
+import { PERIOD_TIMES_KEY, PERIOD_DURATIONS_KEY } from '@/constants/storage-keys';
+import { courseHue, withAlpha } from '@/lib/course-palette';
+import {
+  createDefaultPeriodTimes,
+  createDefaultPeriodDurations,
+  formatPeriodRange,
+  formatPeriodTimeRange,
+  formatWeekDisplay,
+  formatDayDate,
+  formatMonth,
+  parseLocalDate,
+  startOfLocalDay,
+} from '@/lib/period-format';
+import { PeriodTimeModal } from '@/components/PeriodTimeModal';
 import { useTimetable } from '@/state/timetable';
 import { CourseEditModal } from '@/components/CourseEditModal';
 import { useTheme } from '@/hooks/use-theme';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
-import { coursesForWeek, coursesToTimetable, periodsArray, DEFAULT_MAX_PERIODS, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse, type TimetableData, type WeekDay, TimeSlot } from '@/types/timetable';
+import { coursesForWeek, coursesToTimetable, periodsArray, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse, type TimetableData, type WeekDay, TimeSlot } from '@/types/timetable';
 import type { ReportWarning } from '@/lib/reporting/types';
 import type { ImportReport } from '@/state/timetable';
 import { useDeepLink } from '@/state/deep-link-context';
@@ -30,8 +44,6 @@ const SLOT_BASE_HEIGHT = 72;
 const GAP = 2;
 /** Push-transition duration in ms (grid slides out, next week in). */
 const WEEK_TRANSITION_MS = 250;
-const PERIOD_TIMES_KEY = 'course-table-app.period-times.v2';
-const PERIOD_DURATIONS_KEY = 'course-table-app.period-durations.v1';
 
 // Short day labels: 一、二、三、四、五、六、日
 const SHORT_DAY_LABELS: Record<typeof WEEK_DAYS[number], string> = {
@@ -42,34 +54,6 @@ const SHORT_DAY_LABELS: Record<typeof WEEK_DAYS[number], string> = {
 /** Empty-slot taps are disabled on neighbor (transition) panels. */
 const NOOP_EMPTY_SLOT = () => {};
 // Pastel hue palette for course cards. Hashed from the course name so each
-// course keeps one stable color across renders/restarts, and the same
-// course on different days shares its hue. 8 hues keep same-day collisions
-// rare and stay readable over both light and dark backgrounds.
-const COURSE_PALETTE = [
-  '#4A90D9', // blue
-  '#5BAE6E', // green
-  '#E0913C', // orange
-  '#9B6FD4', // purple
-  '#D96A9C', // pink
-  '#42AFA5', // teal
-  '#C9A227', // gold
-  '#6C7BD9', // indigo
-];
-
-function courseHue(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  return COURSE_PALETTE[hash % COURSE_PALETTE.length];
-}
-
-/** '#RRGGBB' + alpha -> 'rgba(...)' — works on every RN version. */
-function withAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
 /** Dark-mode unified card: ONE solid gray-blue surface (#2E3E4E) —
  * same hue family as the dark elevation ladder, a full step above
  * backgroundElement (#1D252E) so cards read as raised layers, dark
@@ -366,7 +350,8 @@ export default function TimetableScreen() {
     const [periodDurations, setPeriodDurations] = useState<Record<number, number>>(() => createDefaultPeriodDurations());
     const [periodStorageLoaded, setPeriodStorageLoaded] = useState(false);
     const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
-    const [periodTimeInput, setPeriodTimeInput] = useState('');
+    const [periodHourInput, setPeriodHourInput] = useState('');
+    const [periodMinuteInput, setPeriodMinuteInput] = useState('');
     const [periodDurationInput, setPeriodDurationInput] = useState('45');
     /** Controls the "解析详情" modal. */
     const [reportDetailOpen, setReportDetailOpen] = useState(false);
@@ -676,7 +661,6 @@ export default function TimetableScreen() {
     setPendingDisplayWeek(target); // header flips now, with the grid
     setSnapDir(dirNext ? 'next' : 'prev');
     const rest = dirNext ? -scrollBounds.panelWidth : scrollBounds.panelWidth;
-    // eslint-disable-next-line react-hooks/immutability -- Reanimated shared value
     stripX.value = withTiming(rest, {
       duration: WEEK_TRANSITION_MS,
       easing: Easing.out(Easing.cubic),
@@ -732,14 +716,28 @@ export default function TimetableScreen() {
   // would re-render every panel on every screen render.
   const openPeriodEditor = useCallback((period: number) => {
     setSelectedPeriod(period);
-    setPeriodTimeInput(periodTimes[period]);
+    // Split the stored "HH:MM" value into separate hour / minute fields.
+    const [hour = '', minute = ''] = (periodTimes[period] ?? '').split(':');
+    setPeriodHourInput(hour);
+    setPeriodMinuteInput(minute);
     setPeriodDurationInput(String(periodDurations[period]));
   }, [periodTimes, periodDurations]);
 
   const savePeriodTime = () => {
+    const hourText = periodHourInput.trim();
+    const minuteText = periodMinuteInput.trim();
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
     const duration = Number.parseInt(periodDurationInput, 10);
-    if (selectedPeriod === null || !/^([01]\d|2[0-3]):[0-5]\d$/.test(periodTimeInput) || !Number.isInteger(duration) || duration < 1 || duration > 240) return;
-    setPeriodTimes(current => ({ ...current, [selectedPeriod]: periodTimeInput }));
+    if (
+      selectedPeriod === null ||
+      !/^\d{1,2}$/.test(hourText) || hour > 23 ||
+      !/^\d{1,2}$/.test(minuteText) || minute > 59 ||
+      !Number.isInteger(duration) || duration < 1 || duration > 240
+    ) return;
+    // Reassemble as zero-padded "HH:MM" so stored values keep their format.
+    const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    setPeriodTimes(current => ({ ...current, [selectedPeriod]: time }));
     setPeriodDurations(current => ({ ...current, [selectedPeriod]: duration }));
     setSelectedPeriod(null);
   };
@@ -957,9 +955,11 @@ export default function TimetableScreen() {
                       {selectedPeriod !== null && (
                         <PeriodTimeModal
                           period={selectedPeriod}
-                          value={periodTimeInput}
+                          hour={periodHourInput}
+                          minute={periodMinuteInput}
                           duration={periodDurationInput}
-                          onChange={setPeriodTimeInput}
+                          onHourChange={setPeriodHourInput}
+                          onMinuteChange={setPeriodMinuteInput}
                           onDurationChange={setPeriodDurationInput}
                           onSave={savePeriodTime}
                           onClose={() => setSelectedPeriod(null)}
@@ -1136,151 +1136,6 @@ export default function TimetableScreen() {
       </View>
     </Modal>
   );
-}
-
-function PeriodTimeModal({ period, value, duration, onChange, onDurationChange, onSave, onClose }: { period: number; value: string; duration: string; onChange: (value: string) => void; onDurationChange: (value: string) => void; onSave: () => void; onClose: () => void }) {
-  const theme = useTheme();
-  return (
-    <Modal visible={true} onRequestClose={onClose} animationType="fade" transparent={true}>
-      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[styles.modalContent, { backgroundColor: theme.backgroundElement }]}>
-          <ThemedText type="subtitle" style={styles.periodModalTitle}>第{period}节上课时间</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">请输入 24 小时制时间，例如 08:00。</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>开始时间</ThemedText>
-          <TextInput
-            value={value}
-            onChangeText={onChange}
-            placeholder="08:00"
-            placeholderTextColor={theme.textSecondary}
-            keyboardType="numbers-and-punctuation"
-            style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
-            accessibilityLabel={`第${period}节上课时间`}
-            autoFocus
-          />
-          <ThemedText type="small" themeColor="textSecondary" style={styles.periodFieldLabel}>课程时长（分钟）</ThemedText>
-          <TextInput
-            value={duration}
-            onChangeText={onDurationChange}
-            placeholder="45"
-            placeholderTextColor={theme.textSecondary}
-            keyboardType="number-pad"
-            style={[styles.periodInput, { color: theme.text, borderColor: theme.textSecondary + '66', backgroundColor: theme.background }]}
-            accessibilityLabel={`第${period}节课程时长`}
-          />
-          <View style={styles.periodModalActions}>
-            <Pressable onPress={onClose} style={styles.modalActionButton}><ThemedText themeColor="textSecondary">取消</ThemedText></Pressable>
-            <Pressable onPress={onSave} style={[styles.modalActionButton, { backgroundColor: theme.backgroundSelected }]}><ThemedText style={{ color: theme.text }}>保存</ThemedText></Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function createDefaultPeriodTimes(maxPeriods: number = DEFAULT_MAX_PERIODS): Record<number, string> {
-  return periodsArray(maxPeriods).reduce<Record<number, string>>((times, period) => {
-    const totalMinutes = 8 * 60 + (period - 1) * (45 + 5);
-    times[period] = formatMinutes(totalMinutes);
-    return times;
-  }, {});
-}
-
-function createDefaultPeriodDurations(maxPeriods: number = DEFAULT_MAX_PERIODS): Record<number, number> {
-  return periodsArray(maxPeriods).reduce<Record<number, number>>((durations, period) => {
-    durations[period] = 45;
-    return durations;
-  }, {});
-}
-
-function formatMinutes(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60) % 24;
-  const minutes = totalMinutes % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-}
-
-function formatPeriodRange(startTime: string | undefined, duration: number): string {
-  // Defensive: periodTimes is keyed 1..DEFAULT_MAX_PERIODS. A course with a
-  // larger endPeriod (should be clamped upstream) must not crash the grid.
-  if (!startTime) return '';
-  const [hours, minutes] = startTime.split(':').map(Number);
-  const endTime = formatMinutes(hours * 60 + minutes + duration);
-  return `${startTime}\n${endTime}`;
-}
-
-function formatPeriodTimeRange(start: number, end: number, periodTimes: Record<number, string>, periodDurations: Record<number, number>): string {
-  const startTime = periodTimes[start];
-  const lessonCount = end - start + 1;
-  const duration = Array.from({ length: lessonCount }, (_, index) => periodDurations[start + index] ?? 45).reduce((total, minutes) => total + minutes, 0) + (lessonCount - 1) * 5;
-  return `(第${start}-${end}节 ${formatPeriodRange(startTime, duration)})`;
-}
-
-/**
- * Render a course's week info for the detail modal. Replaces the old
- * "周次模式" full/specific toggle — the v4 shape carries the concrete
- * weekList plus an optional odd/even marker, so we can show:
- *   - "全周" when the list covers [1..N] contiguously with N≥18
- *   - "单周 [1, 3, 5, ...]" / "双周 [2, 4, ...]" when marker present
- *   - "指定周: 1-8, 10-16" (range form) when no marker and not full
- */
-function formatWeekDisplay(
-  weekList: number[],
-  isOddEven: 'odd' | 'even' | null | undefined,
-): string {
-  if (!weekList || weekList.length === 0) return '未指定';
-
-  // "Full" heuristic: contiguous from 1 and length ≥ DEFAULT_SEMESTER_WEEKS.
-  const isFullSemester =
-    weekList[0] === 1 &&
-    weekList.every((w, i) => i === 0 || w === weekList[i - 1] + 1) &&
-    weekList.length >= 18;
-
-  if (isFullSemester) return '全周';
-  if (isOddEven === 'odd') return `单周 ${weekList.join(', ')}`;
-  if (isOddEven === 'even') return `双周 ${weekList.join(', ')}`;
-
-  // Compress runs to range form for readability: 1,2,3,5,7,8 → "1-3, 5, 7-8".
-  const parts: string[] = [];
-  let i = 0;
-  while (i < weekList.length) {
-    const start = weekList[i];
-    let end = start;
-    let j = i + 1;
-    while (j < weekList.length && weekList[j] === end + 1) {
-      end = weekList[j];
-      j++;
-    }
-    parts.push(start === end ? `${start}` : `${start}-${end}`);
-    i = j;
-  }
-  return `指定周: ${parts.join(', ')}`;
-}
-
-function parseLocalDate(value: string): Date | null {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return Number.isNaN(date.getTime()) || date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3]) ? null : startOfLocalDay(date);
-}
-
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function formatDayDate(startDate: string, week: number, day: typeof WEEK_DAYS[number]): string {
-  const start = parseLocalDate(startDate);
-  if (!start) return '';
-  const dayIndex = WEEK_DAYS.indexOf(day);
-  const date = new Date(start);
-  date.setDate(start.getDate() + (week - 1) * 7 + dayIndex);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
-function formatMonth(startDate: string, week: number): string {
-  const start = parseLocalDate(startDate);
-  if (!start) return '';
-  const date = new Date(start);
-  date.setDate(start.getDate() + (week - 1) * 7);
-  return `${date.getMonth() + 1}月`;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
