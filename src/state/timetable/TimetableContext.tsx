@@ -1,12 +1,20 @@
-import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ScheduledCourse, TimetableData } from '@/types/timetable';
 import type { ImportReport } from './types';
 import { useTimetableStore } from './useTimetableStore';
 import { useDebouncedPersist } from './useDebouncedPersist';
 import { loadSnapshot } from './storage';
-import { initializeNotifications, scheduleAllNotifications, DEFAULT_LEAD_MINUTES, normalizeLeadMinutes } from '@/lib/notifications';
-import { getStoredValue } from '@/lib/storage';
-import { NOTIFICATION_ENABLED_KEY, PERIOD_TIMES_KEY, PERIOD_DURATIONS_KEY, NOTIFICATION_LEAD_MINUTES_KEY } from '@/constants/storage-keys';
+import {
+  initializeNotifications,
+  scheduleAllNotifications,
+  cancelCourseNotifications,
+  rescheduleCourseNotifications,
+  coursesScheduleEqual,
+  loadPeriodSchedule,
+  requestNotificationPermissions,
+  beginScheduleEpoch,
+  isCurrentScheduleEpoch,
+} from '@/lib/notifications';
 
 interface ContextValue {
   courses: ScheduledCourse[];
@@ -83,37 +91,62 @@ export function TimetableProvider({ children }: PropsWithChildren) {
 
   // Schedule notifications when courses change (after hydration). Runs on an
   // idle callback (InteractionManager is deprecated in RN 0.86) so the
-  // hundreds of serialized native calls (per-course × per-week permission
-  // checks + scheduling) don't compete with the first-paint frame.
+  // hundreds of serialized native calls don't compete with the first-paint
+  // frame. Incremental: the previous snapshot is diffed against the new one —
+  // removed courses get their notifications cancelled by id, added/changed
+  // courses get rescheduled by id. Only the first schedule (or a semester
+  // start date change) falls back to the full cancel-all + re-schedule.
+  // Each batch claims an epoch; a newer batch (settings page manual resync)
+  // invalidates an older in-flight one so two batches can never interleave.
+  const prevCoursesRef = useRef<ScheduledCourse[] | null>(null);
+
   useEffect(() => {
     if (!store.isHydrated || !notificationsInitialized) return;
 
     const task = requestIdleCallback(() => {
       void (async () => {
-        // 并行读取：通知开关 + 用户自定义节次时间/时长 + 提前提醒分钟数。
-        // period-times 缺失时 notifications.ts 内部回退到默认规则
-        // （08:00 起 45 分钟/节），不会再把通知算成前一天深夜。
-        // 声音/震动不在此管理，由系统通知设置控制。
-        const [savedEnabled, savedTimes, savedDurations, savedLead] = await Promise.all([
-          getStoredValue(NOTIFICATION_ENABLED_KEY),
-          getStoredValue(PERIOD_TIMES_KEY),
-          getStoredValue(PERIOD_DURATIONS_KEY),
-          getStoredValue(NOTIFICATION_LEAD_MINUTES_KEY),
-        ]);
-        const enabled = savedEnabled !== null ? JSON.parse(savedEnabled) : false;
-        const leadMinutes = savedLead !== null ? normalizeLeadMinutes(savedLead) : DEFAULT_LEAD_MINUTES;
-
-        if (enabled && store.snapshot.semesterStartDate) {
-          const periodTimes = savedTimes ? JSON.parse(savedTimes) : {};
-          const periodDurations = savedDurations ? JSON.parse(savedDurations) : {};
-          await scheduleAllNotifications(
-            store.snapshot.courses,
-            store.snapshot.semesterStartDate,
-            periodTimes,
-            periodDurations,
-            leadMinutes,
-          );
+        const epoch = beginScheduleEpoch();
+        const prefs = await loadPeriodSchedule();
+        if (!isCurrentScheduleEpoch(epoch)) return;
+        if (!prefs.enabled || !store.snapshot.semesterStartDate) {
+          prevCoursesRef.current = store.snapshot.courses;
+          return;
         }
+
+        // 权限只在整个批次开头查一次（不再每课×每周重复查询）。
+        const granted = await requestNotificationPermissions();
+        if (!isCurrentScheduleEpoch(epoch)) return;
+        if (!granted) {
+          prevCoursesRef.current = store.snapshot.courses;
+          return;
+        }
+
+        const courses = store.snapshot.courses;
+        const semesterStartDate = store.snapshot.semesterStartDate;
+        const prev = prevCoursesRef.current;
+
+        if (prev === null || prev.length === 0 && courses.length > 0) {
+          // 首次调度（或从空到有）：全量。
+          await scheduleAllNotifications(courses, semesterStartDate, prefs.periodTimes, prefs.periodDurations, prefs.leadMinutes);
+        } else {
+          // 增量 diff：删除 → 定向取消；新增/变更 → 定向重排。
+          const removed = prev.filter((p) => !courses.some((c) => c.id === p.id));
+          const upserted = courses.filter((c) => {
+            const p = prev.find((x) => x.id === c.id);
+            return !p || !coursesScheduleEqual(p, c);
+          });
+          for (const course of removed) {
+            if (!isCurrentScheduleEpoch(epoch)) return;
+            await cancelCourseNotifications(course);
+          }
+          for (const course of upserted) {
+            if (!isCurrentScheduleEpoch(epoch)) return;
+            await rescheduleCourseNotifications(course, semesterStartDate, prefs.periodTimes, prefs.periodDurations, prefs.leadMinutes);
+          }
+        }
+
+        if (!isCurrentScheduleEpoch(epoch)) return;
+        prevCoursesRef.current = courses;
       })();
     });
 

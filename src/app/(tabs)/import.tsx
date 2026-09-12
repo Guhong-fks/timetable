@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -38,9 +38,17 @@ export default function ImportScreen() {
   const { replaceCourses, clearCourses, courses, importedFileName, semesterStartDate, setSemesterStartDate } = useTimetable();
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
-  // Input box shows the COMPACT 8-digit form (e.g. 20260907); the store
-  // keeps ISO 'YYYY-MM-DD' (every consumer parses that shape).
-  const [startDateInput, setStartDateInput] = useState((semesterStartDate ?? '').replaceAll('-', ''));
+  // 学期开始日期：年 / 月 / 日三个输入框。月份/日期支持单数字输入（如 9 月 7 日
+  // 输 9、7），输入框保留用户原样（不强制补零）；只有三者拼出合法 ISO
+  // 'YYYY-MM-DD' 时才写入 store（所有消费方——网格日期、ICS 周次锚点——
+  // 都解析该格式），避免半输入态落库。
+  const initialSemesterParts = (() => {
+    const m = (semesterStartDate ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? { year: m[1], month: String(Number(m[2])), day: String(Number(m[3])) } : null;
+  })();
+  const [dateYear, setDateYear] = useState(initialSemesterParts?.year ?? '');
+  const [dateMonth, setDateMonth] = useState(initialSemesterParts?.month ?? '');
+  const [dateDay, setDateDay] = useState(initialSemesterParts?.day ?? '');
   const [lastImportTime, setLastImportTime] = useState(0);
   /** Parsed-but-unconfirmed import; rendering this switches to the preview. */
   const [pending, setPending] = useState<PendingImport | null>(null);
@@ -68,8 +76,10 @@ export default function ImportScreen() {
     setLastImportTime(now);
     try {
       // ICS 周次换算依赖学期开始日期（week-1 Monday）；docx/xlsx 不使用。
-      // 通过参数显式传入，不依赖 importer 模块级状态。
-      const result = await parseTimetableFile(file, startDateInput);
+      // 传入 ISO 'YYYY-MM-DD'（weekAnchorFromIso 只认该格式；未填/不完整时
+      // 传 undefined，ICS 退化为 1-18 周并给出提示）。
+      const iso = buildSemesterIso(dateYear, dateMonth, dateDay) ?? undefined;
+      const result = await parseTimetableFile(file, iso);
       // Route through the preview: the user confirms/fixes the recognized
       // list before anything touches the store.
       setPending({
@@ -103,7 +113,14 @@ export default function ImportScreen() {
     // header shows no dates and ICS weeks degrade to 1..18.
     const startDate = semesterStartDate ?? pending.inferredSemesterStart;
     replaceCourses(kept, pending.fileName, startDate, pending.report);
-    if (!semesterStartDate && startDate) setStartDateInput(startDate.replaceAll('-', ''));
+    if (!semesterStartDate && startDate) {
+      const parts = startDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (parts) {
+        setDateYear(parts[1]);
+        setDateMonth(String(Number(parts[2])));
+        setDateDay(String(Number(parts[3])));
+      }
+    }
     setStatus(`已导入 ${kept.length} 门课程${pending.report.warnings.length ? `（${pending.report.warnings.length} 条警告，请查看课表底部详情）` : '。'}`);
     setPending(null);
   };
@@ -157,16 +174,40 @@ export default function ImportScreen() {
     }
   }
 
-  const handleDateChange = (text: string) => {
-    // Input box always shows COMPACT digits (20260907). The STORED format
-    // stays ISO 'YYYY-MM-DD' — every consumer (grid date math, ICS week
-    // anchor) parses that shape — so the 8th digit commits to the store.
-    // ISO pastes normalize too (dashes stripped before the digit count).
-    const digits = text.replace(/\D/g, '').slice(0, 8);
-    setStartDateInput(digits);
-    if (digits.length === 8) {
-      setSemesterStartDate(`${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`);
-    }
+  /** 由年/月/日拼出 ISO 'YYYY-MM-DD'；任一不合法返回 null（不提交存储）。
+   * 月份/日期允许 1-2 位（单数字自动补零），并按该月真实天数校验（含闰年）。 */
+  const buildSemesterIso = (year: string, month: string, day: string): string | null => {
+    if (!/^\d{4}$/.test(year)) return null;
+    const y = Number(year);
+    if (!/^\d{1,2}$/.test(month)) return null;
+    const m = Number(month);
+    if (m < 1 || m > 12) return null;
+    if (!/^\d{1,2}$/.test(day)) return null;
+    const d = Number(day);
+    if (d < 1 || d > 31) return null;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    if (d > daysInMonth) return null;
+    return `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+
+  // 三个输入框各自 onChange：剥离非数字并限长，三者拼出合法 ISO 才写入 store。
+  const handleYearChange = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 4);
+    setDateYear(digits);
+    const iso = buildSemesterIso(digits, dateMonth, dateDay);
+    if (iso) setSemesterStartDate(iso);
+  };
+  const handleMonthChange = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 2);
+    setDateMonth(digits);
+    const iso = buildSemesterIso(dateYear, digits, dateDay);
+    if (iso) setSemesterStartDate(iso);
+  };
+  const handleDayChange = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 2);
+    setDateDay(digits);
+    const iso = buildSemesterIso(dateYear, dateMonth, digits);
+    if (iso) setSemesterStartDate(iso);
   };
 
   // ---- Preview mode: the parse succeeded; confirm before committing. ----
@@ -213,16 +254,49 @@ export default function ImportScreen() {
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
-              输入课程第一周周一的日期（8 位数字，如 20260907），用于显示上课日期。
+              输入课程第一周周一的日期（年 / 月 / 日，月份和日期可只填一位，如 9 月 7 日），用于显示上课日期。
             </ThemedText>
-            <TextInput
-              value={startDateInput}
-              onChangeText={handleDateChange}
-              inputMode="numeric"
-              placeholder="例如 20260907"
-              placeholderTextColor={theme.textSecondary}
-              style={[styles.dateInput, { color: theme.text, borderColor: theme.textSecondary + '55', backgroundColor: theme.background }]}
-            />
+            <View style={styles.dateRow}>
+              <View style={styles.dateField}>
+                <TextInput
+                  value={dateYear}
+                  onChangeText={handleYearChange}
+                  inputMode="numeric"
+                  placeholder="2026"
+                  placeholderTextColor={theme.textSecondary}
+                  maxLength={4}
+                  accessibilityLabel="学期开始年份"
+                  style={[styles.dateInput, { color: theme.text, borderColor: theme.textSecondary + '55', backgroundColor: theme.background }]}
+                />
+                <ThemedText themeColor="textSecondary" style={styles.dateLabel}>年</ThemedText>
+              </View>
+              <View style={styles.dateField}>
+                <TextInput
+                  value={dateMonth}
+                  onChangeText={handleMonthChange}
+                  inputMode="numeric"
+                  placeholder="9"
+                  placeholderTextColor={theme.textSecondary}
+                  maxLength={2}
+                  accessibilityLabel="学期开始月份"
+                  style={[styles.dateInput, { color: theme.text, borderColor: theme.textSecondary + '55', backgroundColor: theme.background }]}
+                />
+                <ThemedText themeColor="textSecondary" style={styles.dateLabel}>月</ThemedText>
+              </View>
+              <View style={styles.dateField}>
+                <TextInput
+                  value={dateDay}
+                  onChangeText={handleDayChange}
+                  inputMode="numeric"
+                  placeholder="7"
+                  placeholderTextColor={theme.textSecondary}
+                  maxLength={2}
+                  accessibilityLabel="学期开始日"
+                  style={[styles.dateInput, { color: theme.text, borderColor: theme.textSecondary + '55', backgroundColor: theme.background }]}
+                />
+                <ThemedText themeColor="textSecondary" style={styles.dateLabel}>日</ThemedText>
+              </View>
+            </View>
             {semesterStartDate && (
               <ThemedText themeColor="textSecondary" style={styles.currentDate}>
                 当前设置：{semesterStartDate.replaceAll('-', '')} (第1周周一)
@@ -306,6 +380,9 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
   currentDate: { marginTop: Spacing.one, fontSize: 13 },
+  dateRow: { flexDirection: 'row', gap: Spacing.two, alignItems: 'flex-end' },
+  dateField: { flex: 1, minWidth: 0 },
+  dateLabel: { textAlign: 'center', marginTop: Spacing.one, fontSize: 13 },
   button: { padding: Spacing.three, borderRadius: Spacing.two, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: Spacing.one },
   buttonIcon: { marginRight: Spacing.one },
   buttonText: { fontWeight: '700' },

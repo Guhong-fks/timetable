@@ -36,6 +36,7 @@
         }
       ],
       "expo-document-picker",
+      "./plugins/withNoBackup",
       [
         "@bittingz/expo-widgets",
         {

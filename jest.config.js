@@ -1,10 +1,6 @@
 module.exports = {
+  preset: 'jest-expo',
   testMatch: ['**/__tests__/**/*.test.(ts|tsx)'],
-  testEnvironment: 'node',
-  transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
-  },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     // react-native-anydoc pulls in Nitro at import-time; we don't load the

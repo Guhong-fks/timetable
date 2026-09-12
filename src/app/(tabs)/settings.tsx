@@ -1,10 +1,18 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { LeadMinutesModal } from '@/components/LeadMinutesModal';
-import { NOTIFICATION_ENABLED_KEY, NOTIFICATION_LEAD_MINUTES_KEY, PERIOD_DURATIONS_KEY, PERIOD_TIMES_KEY } from '@/constants/storage-keys';
+import { NOTIFICATION_ENABLED_KEY, NOTIFICATION_LEAD_MINUTES_KEY } from '@/constants/storage-keys';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { DEFAULT_LEAD_MINUTES, cancelAllNotifications, normalizeLeadMinutes, requestNotificationPermissions, scheduleAllNotifications } from '@/lib/notifications';
-import { getStoredValue, setStoredValue } from '@/lib/storage';
+import {
+  cancelAllNotifications,
+  DEFAULT_LEAD_MINUTES,
+  loadPeriodSchedule,
+  requestNotificationPermissions,
+  scheduleAllNotifications,
+  beginScheduleEpoch,
+  isCurrentScheduleEpoch,
+} from '@/lib/notifications';
+import { setStoredValue } from '@/lib/storage';
 import { sendTestNotification } from '@/lib/test-notification';
 import { useAppTheme } from '@/state/theme-context';
 import { useTimetable } from '@/state/timetable';
@@ -23,29 +31,25 @@ export default function SettingsScreen() {
   // 加载通知设置
   useEffect(() => {
     void (async () => {
-      const [saved, savedLead] = await Promise.all([
-        getStoredValue(NOTIFICATION_ENABLED_KEY),
-        getStoredValue(NOTIFICATION_LEAD_MINUTES_KEY),
-      ]);
-      if (saved !== null) {
-        setNotificationsEnabled(JSON.parse(saved));
-      }
-      if (savedLead !== null) {
-        setLeadMinutes(normalizeLeadMinutes(savedLead));
-      }
+      const prefs = await loadPeriodSchedule();
+      setNotificationsEnabled(prefs.enabled);
+      setLeadMinutes(prefs.leadMinutes);
     })();
   }, []);
 
-  /** 用指定提前分钟数重排所有课程通知（仅在通知开启且有课表时生效）。 */
+  /** 用指定提前分钟数重排所有课程通知（仅在通知开启且有课表时生效）。
+   * 作为一个调度批次运行：与 TimetableContext 的增量 effect 共享同一 epoch
+   * 防抖，两个入口并发时以最新批次为准，不会交错覆盖。 */
   const rescheduleNotifications = async (lead: number) => {
     if (courses.length === 0 || !semesterStartDate) return;
-    const [savedTimes, savedDurations] = await Promise.all([
-      getStoredValue(PERIOD_TIMES_KEY),
-      getStoredValue(PERIOD_DURATIONS_KEY),
-    ]);
-    const periodTimes = savedTimes ? { ...JSON.parse(savedTimes) } : {};
-    const periodDurations = savedDurations ? { ...JSON.parse(savedDurations) } : {};
-    await scheduleAllNotifications(courses, semesterStartDate, periodTimes, periodDurations, lead);
+    const epoch = beginScheduleEpoch();
+    const prefs = await loadPeriodSchedule();
+    if (!isCurrentScheduleEpoch(epoch)) return;
+    if (!prefs.enabled) return;
+    const granted = await requestNotificationPermissions();
+    if (!isCurrentScheduleEpoch(epoch)) return;
+    if (!granted) return;
+    await scheduleAllNotifications(courses, semesterStartDate, prefs.periodTimes, prefs.periodDurations, lead);
   };
 
   const toggleNotifications = async (enabled: boolean) => {
@@ -78,14 +82,9 @@ export default function SettingsScreen() {
 
   const handleTestNotification = async () => {
     try {
-      const [savedTimes, savedDurations] = await Promise.all([
-        getStoredValue(PERIOD_TIMES_KEY),
-        getStoredValue(PERIOD_DURATIONS_KEY),
-      ]);
-      const periodTimes = savedTimes ? { ...JSON.parse(savedTimes) } : {};
-      const periodDurations = savedDurations ? { ...JSON.parse(savedDurations) } : {};
-      
-      const result = await sendTestNotification(courses, semesterStartDate, periodTimes, periodDurations);
+      // 共享读取：与 Context/重排同一份节次配置，避免各自解析造成口径漂移。
+      const prefs = await loadPeriodSchedule();
+      const result = await sendTestNotification(courses, semesterStartDate, prefs.periodTimes, prefs.periodDurations);
       Alert.alert(result.success ? '成功' : '失败', result.message);
     } catch (error) {
       Alert.alert('错误', '发送测试通知失败：' + (error as Error).message);

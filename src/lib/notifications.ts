@@ -1,6 +1,13 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { ScheduledCourse } from '@/types/timetable';
+import { getStoredValue } from '@/lib/storage';
+import {
+  NOTIFICATION_ENABLED_KEY,
+  PERIOD_TIMES_KEY,
+  PERIOD_DURATIONS_KEY,
+  NOTIFICATION_LEAD_MINUTES_KEY,
+} from '@/constants/storage-keys';
 
 // 配置通知行为：声音/震动由系统通知设置管理，这里仅放行前台横幅显示与声音播放
 Notifications.setNotificationHandler({
@@ -11,6 +18,52 @@ Notifications.setNotificationHandler({
     shouldShowList: true,
   }),
 });
+
+// ---------------------------------------------------------------------------
+// 调度批次防抖
+// ---------------------------------------------------------------------------
+// 通知调度有多个入口（TimetableContext 的课程变化 effect、设置页的手动重排），
+// 每个入口都是一个 async 批次：读存储 → 查权限 → 取消 → 逐个调度。两个批次
+// 并发执行时可能交错（旧批次在 await 之后覆盖新批次的结果）。用单调递增的
+// epoch 做"最新批次获胜"：批次开始时领取 epoch，每个 await 之后检查自己是否
+// 仍是最新，不是就立即中止，避免过期批次覆盖新状态。
+let scheduleEpoch = 0;
+
+/** 开始一个新调度批次，返回其 epoch。 */
+export function beginScheduleEpoch(): number {
+  return ++scheduleEpoch;
+}
+
+/** 当前批次仍是最近启动的批次吗？ */
+export function isCurrentScheduleEpoch(epoch: number): boolean {
+  return epoch === scheduleEpoch;
+}
+
+// ---------------------------------------------------------------------------
+// 通知配置读取（共享：Context 与设置页使用同一份"读存储 → 归一化"逻辑）
+// ---------------------------------------------------------------------------
+export interface PeriodSchedulePrefs {
+  enabled: boolean;
+  periodTimes: Record<number, string>;
+  periodDurations: Record<number, number>;
+  leadMinutes: number;
+}
+
+/** 并行读取通知开关 + 节次时间/时长 + 提前分钟数，并归一化。 */
+export async function loadPeriodSchedule(): Promise<PeriodSchedulePrefs> {
+  const [savedEnabled, savedTimes, savedDurations, savedLead] = await Promise.all([
+    getStoredValue(NOTIFICATION_ENABLED_KEY),
+    getStoredValue(PERIOD_TIMES_KEY),
+    getStoredValue(PERIOD_DURATIONS_KEY),
+    getStoredValue(NOTIFICATION_LEAD_MINUTES_KEY),
+  ]);
+  return {
+    enabled: savedEnabled !== null ? JSON.parse(savedEnabled) : false,
+    periodTimes: savedTimes ? JSON.parse(savedTimes) : {},
+    periodDurations: savedDurations ? JSON.parse(savedDurations) : {},
+    leadMinutes: savedLead !== null ? normalizeLeadMinutes(savedLead) : DEFAULT_LEAD_MINUTES,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // 默认节次规则（与 index.tsx createDefaultPeriodTimes / 原生 widget 端完全一致）：
@@ -138,9 +191,6 @@ export async function scheduleCourseNotification(
 ): Promise<void> {
   if (Platform.OS === 'web') return;
 
-  const hasPermission = await requestNotificationPermissions();
-  if (!hasPermission) return;
-
   const courseDate = getCourseDate(semesterStartDate, week, course.day);
   if (!courseDate) return;
 
@@ -197,7 +247,45 @@ export async function scheduleAllCourseNotifications(
   }
 }
 
-/** 为所有课程调度通知 */
+/** 取消某门课程所有周的通知（增量更新：删除/编辑课程时按 ID 定向清理）。 */
+export async function cancelCourseNotifications(course: ScheduledCourse): Promise<void> {
+  if (Platform.OS === 'web') return;
+  for (const week of course.weekList) {
+    await Notifications.cancelScheduledNotificationAsync(getNotificationIdentifier(course, week));
+  }
+}
+
+/** 某门课程更新后定向重排（增量更新：编辑课程只重排该课，不触碰其他课程）。 */
+export async function rescheduleCourseNotifications(
+  course: ScheduledCourse,
+  semesterStartDate: string,
+  periodTimes: Record<number, string>,
+  periodDurations: Record<number, number>,
+  leadMinutes: number = DEFAULT_LEAD_MINUTES,
+): Promise<void> {
+  await cancelCourseNotifications(course);
+  await scheduleAllCourseNotifications(course, semesterStartDate, periodTimes, periodDurations, leadMinutes);
+}
+
+/**
+ * 两门课程的通知相关字段是否一致。用于 Context 的增量 diff：
+ * 只有影响通知内容/触发时间的字段变化才需要重排。
+ */
+export function coursesScheduleEqual(a: ScheduledCourse, b: ScheduledCourse): boolean {
+  if (a.id !== b.id) return false;
+  if (a.name !== b.name || a.day !== b.day) return false;
+  if (a.startPeriod !== b.startPeriod || a.endPeriod !== b.endPeriod) return false;
+  if ((a.location.address ?? '') !== (b.location.address ?? '')) return false;
+  if ((a.teacher.name ?? '') !== (b.teacher.name ?? '')) return false;
+  if ((a.isOddEven ?? null) !== (b.isOddEven ?? null)) return false;
+  if (a.weekList.length !== b.weekList.length) return false;
+  for (let i = 0; i < a.weekList.length; i++) {
+    if (a.weekList[i] !== b.weekList[i]) return false;
+  }
+  return true;
+}
+
+/** 为所有课程调度通知（全量：首次开启 / 学期开始日期变化 / 整表替换）。 */
 export async function scheduleAllNotifications(
   courses: ScheduledCourse[],
   semesterStartDate: string,
@@ -205,7 +293,7 @@ export async function scheduleAllNotifications(
   periodDurations: Record<number, number>,
   leadMinutes: number = DEFAULT_LEAD_MINUTES,
 ): Promise<void> {
-  // 先取消所有现有通知
+  // 先取消所有现有通知（清理孤儿通知，如 replace 后旧 id 残留）
   await cancelAllNotifications();
 
   // 为每门课程的每一周调度通知
