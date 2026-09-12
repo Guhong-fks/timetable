@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 课程卡片背景：与 App 课卡同款色调（课程色 14% 透明底） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#244A90D9" />
+    <corners android:radius="14dp" />
+</shape>

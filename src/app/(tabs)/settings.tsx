@@ -1,15 +1,15 @@
-import { Pressable, ScrollView, StyleSheet, Switch, View, Alert } from 'react-native';
-import { useState, useEffect } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTimetable } from '@/state/timetable';
-import { useAppTheme } from '@/state/theme-context';
 import { requestNotificationPermissions } from '@/lib/notifications';
-import { sendTestNotification } from '@/lib/test-notification';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
+import { sendTestNotification } from '@/lib/test-notification';
+import { useAppTheme } from '@/state/theme-context';
+import { useTimetable } from '@/state/timetable';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const NOTIFICATION_ENABLED_KEY = 'course-table-app.notifications.enabled.v1';
 const PERIOD_TIMES_KEY = 'course-table-app.period-times.v2';
@@ -111,6 +111,18 @@ export default function SettingsScreen() {
             )}
           </ThemedView>
 
+          {Platform.OS === 'android' && (
+            <ThemedView type="backgroundElement" style={styles.section}>
+              <ThemedText type="subtitle">桌面小组件</ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+                添加方式：长按桌面空白处 → 「小组件」→ 找到「课程表」→ 拖到桌面。
+              </ThemedText>
+              <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+                小组件随课表变更即时更新，并每 30 分钟按当天课程自动刷新；点击小组件可直接打开 App。
+              </ThemedText>
+            </ThemedView>
+          )}
+
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">数据</ThemedText>
             {importedFileName && (
@@ -131,7 +143,7 @@ export default function SettingsScreen() {
 
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">关于</ThemedText>
-            <ThemedText themeColor="textSecondary">课程表 v1.0.3</ThemedText>
+            <ThemedText themeColor="textSecondary">课程表 v1.0.4</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
               基于 Expo + React Native 构建
             </ThemedText>

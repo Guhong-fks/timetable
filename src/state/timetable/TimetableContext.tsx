@@ -82,25 +82,32 @@ export function TimetableProvider({ children }: PropsWithChildren) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Schedule notifications when courses change (after hydration)
+  // Schedule notifications when courses change (after hydration). Runs on an
+  // idle callback (InteractionManager is deprecated in RN 0.86) so the
+  // hundreds of serialized native calls (per-course × per-week permission
+  // checks + scheduling) don't compete with the first-paint frame.
   useEffect(() => {
     if (!store.isHydrated || !notificationsInitialized) return;
-    
-    void (async () => {
-      const saved = await getStoredValue(NOTIFICATION_ENABLED_KEY);
-      const enabled = saved !== null ? JSON.parse(saved) : false;
-      
-      if (enabled && store.snapshot.semesterStartDate) {
-        await scheduleAllNotifications(
-          store.snapshot.courses,
-          store.snapshot.semesterStartDate,
-          // 这些需要从 index.tsx 传递，或者我们从存储中读取
-          // 暂时使用默认值，实际应用中需要从 period times 存储读取
-          {} as Record<number, string>,
-          {} as Record<number, number>
-        );
-      }
-    })();
+
+    const task = requestIdleCallback(() => {
+      void (async () => {
+        const saved = await getStoredValue(NOTIFICATION_ENABLED_KEY);
+        const enabled = saved !== null ? JSON.parse(saved) : false;
+
+        if (enabled && store.snapshot.semesterStartDate) {
+          await scheduleAllNotifications(
+            store.snapshot.courses,
+            store.snapshot.semesterStartDate,
+            // 这些需要从 index.tsx 传递，或者我们从存储中读取
+            // 暂时使用默认值，实际应用中需要从 period times 存储读取
+            {} as Record<number, string>,
+            {} as Record<number, number>
+          );
+        }
+      })();
+    });
+
+    return () => cancelIdleCallback(task);
   }, [store.isHydrated, notificationsInitialized, store.snapshot.courses, store.snapshot.semesterStartDate]);
 
   // Persist (gated by hydration). No-ops before hydration completes.

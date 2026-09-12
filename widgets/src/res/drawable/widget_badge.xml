@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 周次徽标：品牌蓝胶囊 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#208AEF" />
+    <corners android:radius="999dp" />
+</shape>

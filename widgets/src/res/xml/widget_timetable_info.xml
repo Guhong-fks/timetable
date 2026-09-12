@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    尺寸策略：
+    - 最小 2×2 格：minWidth / minHeight 按标准公式 2×70-30=110dp；
+      Android 12+ 通过 targetCellWidth/Height=2 把默认大小设为 2×2。
+    - 最大尺寸不设死上限（maxResize 给到远超手机屏幕的 500×1000dp，
+      实际由各手机桌面/启动器按可用网格自行钳制到整屏），
+      因此用户可以把小组件拉大到手机桌面允许的最大宽度与高度。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:maxResizeWidth="500dp"
+    android:maxResizeHeight="1000dp"
+    android:initialLayout="@layout/widget_timetable"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000"
+    android:previewImage="@drawable/widget_preview">
+</appwidget-provider>

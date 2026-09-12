@@ -1,6 +1,6 @@
 import { startTransition, useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import Animated, { useAnimatedStyle, withTiming, runOnJS, Easing } from 'react-native-reanimated';
-import { AppState, Modal, ScrollView, StyleSheet, View, Pressable, TextInput } from 'react-native';
+import { AppState, Modal, ScrollView, StyleSheet, View, Pressable, TextInput, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useTimetablePan } from '@/hooks/useTimetablePanGesture';
@@ -314,7 +314,20 @@ export default function TimetableScreen() {
   const surfaceWidthRef = useRef(0);
   const gridHeightRef = useRef(0);
   const containerHeightRef = useRef(0);
-  const [scrollBounds, setScrollBounds] = useState({ maxX: 0, maxY: 0, panelWidth: 1, dayW: DAY_WIDTH_MAX });
+  // First-paint bounds: seed the day-column width from the window width so
+  // the very first frame already fits the viewport (onLayout hasn't run
+  // yet — without this the first frame renders DAY_WIDTH_MAX=52px columns,
+  // i.e. gridW=392dp, and the Sunday column is clipped on narrow screens
+  // until the measure → recomputeBounds pass lands a frame later).
+  const { width: windowWidth } = useWindowDimensions();
+  const [scrollBounds, setScrollBounds] = useState(() => {
+    const W = Math.min(windowWidth, MaxContentWidth);
+    const dayW = W > 0
+      ? Math.min(Math.max(Math.floor((W - TIME_COL_WIDTH) / 7), DAY_WIDTH_MIN), DAY_WIDTH_MAX)
+      : DAY_WIDTH_MAX;
+    const gridW = TIME_COL_WIDTH + dayW * 7;
+    return { maxX: 0, maxY: 0, panelWidth: Math.max(gridW, 1), dayW };
+  });
   const recomputeBounds = useCallback(() => {
     const W = surfaceWidthRef.current;
     // Compress day columns so the full week (time col + Mon..Sun) fits the
@@ -371,6 +384,7 @@ export default function TimetableScreen() {
           });
         }
         // Then open the course detail modal
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- deep link arrives once, before user interaction; the modal open is the point of the effect
         setSelectedCourse(deepLink.course);
       }
     }, [consumePendingDeepLink, semesterWeeks]);
@@ -407,13 +421,16 @@ export default function TimetableScreen() {
     return () => subscription.remove();
   }, [jumpToCurrentWeek]);
 
-  // Load persisted period times and durations
+  // Load persisted period times and durations (parallel — two independent
+  // storage reads; getStoredValue never rejects, so Promise.all is safe).
   useEffect(() => {
     void (async () => {
       try {
-        const saved = await getStoredValue(PERIOD_TIMES_KEY);
+        const [saved, savedDurations] = await Promise.all([
+          getStoredValue(PERIOD_TIMES_KEY),
+          getStoredValue(PERIOD_DURATIONS_KEY),
+        ]);
         if (saved) setPeriodTimes({ ...createDefaultPeriodTimes(), ...JSON.parse(saved) });
-        const savedDurations = await getStoredValue(PERIOD_DURATIONS_KEY);
         if (savedDurations) setPeriodDurations({ ...createDefaultPeriodDurations(), ...JSON.parse(savedDurations) });
       } catch {
         // Keep calculated defaults on parse failure
@@ -476,6 +493,15 @@ export default function TimetableScreen() {
   //                   swap was still pending) flashed the OLD week's dates
   //                   for a frame (the "dates jump" bug).
   const [snapPhase, setSnapPhase] = useState<'idle' | 'pending-snap'>('idle');
+  /** 邻居周面板是否已就绪。hydrate 完成后下一帧才置真：首帧只渲染
+   * 主面板（视图数减半、首帧更快），随后邻居预挂载恢复，滑动切换
+   * 行为与之前完全一致。 */
+  const [neighborsReady, setNeighborsReady] = useState(false);
+  useEffect(() => {
+    if (!isHydrated) return;
+    const raf = requestAnimationFrame(() => setNeighborsReady(true));
+    return () => cancelAnimationFrame(raf);
+  }, [isHydrated]);
   /** Commit direction, set at commit time and held through pending-snap:
    * only the panel the strip moved TOWARD is visible at the ±panelWidth
    * rest position, so ONLY that side duplicates the target week; the
@@ -487,13 +513,19 @@ export default function TimetableScreen() {
   // pixel-identical to the main panel when the strip snaps to 0 — the
   // anti-flash snapshot), frozen side = its pre-switch idle value expressed
   // against the NEW selectedWeek (target∓2; null at the grid boundary).
-  // At idle both sides re-derive to the standard pre-mounts.
-  const neighborLeft: number | null = snapPhase === 'pending-snap'
-    ? (snapDir === 'prev' ? selectedWeek : (selectedWeek - 2 >= 1 ? selectedWeek - 2 : null))
-    : (selectedWeek > 1 ? selectedWeek - 1 : null);
-  const neighborRight: number | null = snapPhase === 'pending-snap'
-    ? (snapDir === 'next' ? selectedWeek : (selectedWeek + 2 <= semesterWeeks ? selectedWeek + 2 : null))
-    : (selectedWeek < semesterWeeks ? selectedWeek + 1 : null);
+  // At idle both sides re-derive to the standard pre-mounts. Before the
+  // neighbor panels are ready (first frame after hydration), both sides are
+  // null so the first paint renders ONLY the main panel.
+  const neighborLeft: number | null = !neighborsReady
+    ? null
+    : snapPhase === 'pending-snap'
+      ? (snapDir === 'prev' ? selectedWeek : (selectedWeek - 2 >= 1 ? selectedWeek - 2 : null))
+      : (selectedWeek > 1 ? selectedWeek - 1 : null);
+  const neighborRight: number | null = !neighborsReady
+    ? null
+    : snapPhase === 'pending-snap'
+      ? (snapDir === 'next' ? selectedWeek : (selectedWeek + 2 <= semesterWeeks ? selectedWeek + 2 : null))
+      : (selectedWeek < semesterWeeks ? selectedWeek + 1 : null);
   // Pre-mounted neighbor panels: courses + positioned layout, same shape
   // as the current week's so the panel renderer is shared.
   const leftCourses = useMemo(
@@ -584,6 +616,14 @@ export default function TimetableScreen() {
   const commitWeek = useCallback((week: number) => {
     const nextWeek = Math.min(Math.max(week, 1), semesterWeeks);
     if (nextWeek === selectedWeek || pendingWeekRef.current !== null) return;
+    // Neighbors not mounted yet (first frame after hydration — the window
+    // is a few ms, but a fast input-box commit could land in it): swap in
+    // place instead, no slide transition.
+    if (!neighborsReady) {
+      setSelectedWeek(nextWeek);
+      setWeekInput(String(nextWeek));
+      return;
+    }
     // Reject while a transition is settling (strip displaced): an in-place
     // swap here would change the main panel while the strip is parked at
     // ±panelWidth.
@@ -610,7 +650,7 @@ export default function TimetableScreen() {
         if (finished) runOnJS(finishTransition)();
       });
     });
-  }, [selectedWeek, semesterWeeks, snapPhase, stripX, scrollBounds.panelWidth, finishTransition]);
+  }, [selectedWeek, semesterWeeks, snapPhase, neighborsReady, stripX, scrollBounds.panelWidth, finishTransition]);
 
   /** Called when the gesture's worklet decides a pull should commit:
    * set the pending target from the LIVE week, then finish the push
@@ -620,6 +660,18 @@ export default function TimetableScreen() {
     const target = dirNext
       ? Math.min(selectedWeek + 1, semesterWeeks)
       : Math.max(selectedWeek - 1, 1);
+    // Neighbors not mounted yet (sub-frame window right after hydration):
+    // swap in place and reset the strip instead of pushing onto a blank
+    // neighbor panel.
+    if (!neighborsReady) {
+      setSelectedWeek(target);
+      setWeekInput(String(target));
+      // eslint-disable-next-line react-hooks/immutability -- Reanimated shared value
+      stripX.value = 0;
+      // eslint-disable-next-line react-hooks/immutability -- Reanimated shared value
+      stripY.value = 0;
+      return;
+    }
     pendingWeekRef.current = target;
     setPendingDisplayWeek(target); // header flips now, with the grid
     setSnapDir(dirNext ? 'next' : 'prev');

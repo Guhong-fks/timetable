@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小组件预览图：与新版布局一致的简化示意（浅蓝渐变底 + 两张白色圆角卡片 + 色条） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="110dp"
+    android:viewportWidth="200"
+    android:viewportHeight="110">
+
+    <!-- 圆角背景 -->
+    <path
+        android:fillColor="#E6F0FB"
+        android:pathData="M0,18C0,8 8,0 18,0L182,0C192,0 200,8 200,18L200,92C200,102 192,110 182,110L18,110C8,110 0,102 0,92Z" />
+
+    <!-- 标题文字条 -->
+    <path
+        android:fillColor="#9AA7B8"
+        android:pathData="M12,18h36v7h-36z" />
+    <path
+        android:fillColor="#C4D2E2"
+        android:pathData="M12,29h26v4h-26z" />
+
+    <!-- 周次徽标 -->
+    <path
+        android:fillColor="#208AEF"
+        android:pathData="M154,14h36v17h-36z" />
+
+    <!-- 卡片 1 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,40h180v33h-180z" />
+    <path
+        android:fillColor="#3B82F6"
+        android:pathData="M17,48h4v17h-4z" />
+    <path
+        android:fillColor="#111827"
+        android:pathData="M28,48h66v8h-66z" />
+    <path
+        android:fillColor="#9CA3AF"
+        android:pathData="M28,62h52v6h-52z" />
+
+    <!-- 卡片 2 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,79h180v25h-180z" />
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M17,86h4v11h-4z" />
+    <path
+        android:fillColor="#111827"
+        android:pathData="M28,86h58v8h-58z" />
+    <path
+        android:fillColor="#9CA3AF"
+        android:pathData="M28,100h46v5h-46z" />
+</vector>

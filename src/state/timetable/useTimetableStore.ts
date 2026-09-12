@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScheduledCourse,
   TimetableData,
@@ -10,6 +10,7 @@ import {
   DEFAULT_MAX_PERIODS,
 } from '@/types/timetable';
 import type { ImportReport, TimetableSnapshot } from './types';
+import { writeWidgetData, getCurrentWeek } from '@/lib/widget-data';
 
 /**
  * The reactive store behind the timetable context. Holds the six pieces
@@ -77,6 +78,7 @@ export function useTimetableStore(): TimetableStore {
       setSemesterWeeks(computeSemesterWeeks(clean));
       setMaxPeriods(computeMaxPeriods(clean));
       setLastReport(report);
+      
     },
     [],
   );
@@ -87,6 +89,7 @@ export function useTimetableStore(): TimetableStore {
       const clean = sanitizeCourses(next);
       setSemesterWeeks(computeSemesterWeeks(clean));
       setMaxPeriods(computeMaxPeriods(clean));
+      
       return clean;
     });
   }, []);
@@ -101,6 +104,7 @@ export function useTimetableStore(): TimetableStore {
       const clean = sanitizeCourses(next);
       setSemesterWeeks(computeSemesterWeeks(clean));
       setMaxPeriods(computeMaxPeriods(clean));
+      
       return clean;
     });
   }, []);
@@ -112,6 +116,7 @@ export function useTimetableStore(): TimetableStore {
       const clean = sanitizeCourses(next);
       setSemesterWeeks(computeSemesterWeeks(clean));
       setMaxPeriods(computeMaxPeriods(clean));
+      
       return clean;
     });
   }, []);
@@ -145,6 +150,15 @@ export function useTimetableStore(): TimetableStore {
   );
 
   const timetable = useMemo(() => coursesToTimetable(courses), [courses]);
+
+  // Sync widget data on any timetable change (after hydration). Moved out of
+  // the setState updaters: updaters must stay pure (React StrictMode
+  // double-invokes them in dev), and this effect is the single source of
+  // truth for 课表变化 -> 同步桌面小组件.
+  useEffect(() => {
+    if (!isHydrated) return;
+    writeWidgetData(snapshot.courses as any, getCurrentWeek(snapshot.semesterStartDate), snapshot.semesterStartDate);
+  }, [isHydrated, snapshot]);
 
   return {
     snapshot,

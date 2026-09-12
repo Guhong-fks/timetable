@@ -2,7 +2,7 @@
   "expo": {
     "name": "课程表",
     "slug": "course-table-app",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "coursetableapp",
@@ -18,10 +18,7 @@
       "package": "com.fksguh.coursetableapp",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE",
-        "USE_EXACT_ALARM",
-        "SCHEDULE_EXACT_ALARM"
+        "VIBRATE"
       ]
     },
     "web": {
@@ -38,7 +35,22 @@
           "imageWidth": 76
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "@bittingz/expo-widgets",
+        {
+          "android": {
+            "src": "./widgets",
+            "distPlaceholder": "com.fksguh.coursetableapp.widget",
+            "widgets": [
+              {
+                "name": "TimetableWidgetProvider",
+                "resourceName": "@xml/widget_timetable_info"
+              }
+            ]
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
