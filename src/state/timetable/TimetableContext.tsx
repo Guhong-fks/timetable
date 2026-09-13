@@ -98,7 +98,7 @@ export function TimetableProvider({ children }: PropsWithChildren) {
   }, []);
 
   // Schedule notifications when courses change (after hydration). Runs on an
-  // idle callback (InteractionManager is deprecated in RN 0.86) so the
+  // idle callback so the
   // hundreds of serialized native calls don't compete with the first-paint
   // frame. Incremental: the previous snapshot is diffed against the new one —
   // removed courses get their notifications cancelled by id, added/changed

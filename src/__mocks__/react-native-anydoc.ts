@@ -11,6 +11,3 @@ export const convertDocumentToIr = (): Promise<never> => {
       'Construct a fake IR shape inline instead.',
   );
 };
-
-// No-op exports for any consumers that import additional surface area.
-export type ConvertResult = never;

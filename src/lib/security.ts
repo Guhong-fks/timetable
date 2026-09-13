@@ -9,7 +9,7 @@
 
 // Allowed file types for import. anydoc (the Rust engine) parses all of
 // these natively; the recognizer consumes the same DocumentIR regardless.
-export const ALLOWED_MIME_TYPES = [
+const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
   'application/msword', // .doc
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
@@ -17,10 +17,10 @@ export const ALLOWED_MIME_TYPES = [
   'application/octet-stream', // 部分 Android 选择器对 .ics 不注册 MIME
 ];
 
-export const ALLOWED_EXTENSIONS = ['.docx', '.doc', '.xlsx', '.ics'];
+const ALLOWED_EXTENSIONS = ['.docx', '.doc', '.xlsx', '.ics'];
 
 // File size limit (in bytes) — enforced by validateFile / validateBufferSize.
-export const MAX_DOCX_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_DOCX_SIZE = 5 * 1024 * 1024; // 5 MB
 
 /**
  * Validate file before processing.

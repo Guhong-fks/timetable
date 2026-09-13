@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const STORAGE_TIMEOUT_MS = 10000; // 增加到 10s，防止后台恢复时超时
+const STORAGE_TIMEOUT_MS = 10000; // 10s：防止后台恢复时存储超时
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([

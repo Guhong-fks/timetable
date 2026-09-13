@@ -14,7 +14,7 @@ import { irToGridCells } from '@/lib/engine/recognizer';
 import { buildDenseGrid, detectLayout, type TableLayout } from '@/lib/engine/tableGrid';
 import type { IrTableBlock } from '@/lib/engine/recognizer';
 
-export interface ParseDiagnostics {
+interface ParseDiagnostics {
   capturedAt: string;
   appVersion: string;
   tables: {

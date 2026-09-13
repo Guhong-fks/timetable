@@ -1,17 +1,17 @@
-import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ImportPreview } from '@/components/ImportPreview';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ImportPreview } from '@/components/ImportPreview';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { parseTimetableFile, isNativeBridgeAvailable, ImportDiagnosticsError } from '@/lib/importers/timetable-importer';
-import { useTimetable } from '@/state/timetable';
 import { useTheme } from '@/hooks/use-theme';
-import type { ScheduledCourse } from '@/types/timetable';
+import { ImportDiagnosticsError, isNativeBridgeAvailable, parseTimetableFile } from '@/lib/importers/timetable-importer';
 import type { ReportWarning } from '@/lib/reporting/types';
+import { useTimetable } from '@/state/timetable';
+import type { ScheduledCourse } from '@/types/timetable';
+import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { useRef, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface PendingImport {
   courses: ScheduledCourse[];
@@ -23,9 +23,8 @@ interface PendingImport {
   inferredSemesterStart?: string;
 }
 
-/** Probed once per app session at module scope — outside React's render,
- * so the purity rule sees no impure call during render. The Nitro require
- * is idempotent and side-effect-free (try/catch probe). */
+/** 模块级探测一次：Nitro require 幂等且无副作用（try/catch），
+ * 放在 render 之外避免 hooks purity 误报。 */
 let nativeProbeCache: boolean | null = null;
 function probeNativeOnce(): boolean {
   if (nativeProbeCache === null) nativeProbeCache = isNativeBridgeAvailable();
@@ -54,11 +53,7 @@ export default function ImportScreen() {
   const [pending, setPending] = useState<PendingImport | null>(null);
   /** IR dump from the last failed parse (share button appears when set). */
   const [diagnosticsText, setDiagnosticsText] = useState<string | null>(null);
-  // Probe ONCE at init. False on Expo Go (the Nitro native binary is not
-  // bundled); true on a Development Build / EAS Build. `isNativeBridgeAvailable`
-  // does a `require` inside a try/catch and never throws across the boundary;
-  // it is side-effect-free, so the lazy initializer keeps it out of both the
-  // render body AND the effect (react-hooks/set-state-in-effect).
+  // 初始化时探测一次：Expo Go 返回 false，Development / EAS Build 返回 true。
   const [nativeAvailable] = useState<boolean | null>(probeNativeOnce);
   const IMPORT_COOLDOWN_MS = 3000;
 
@@ -254,7 +249,7 @@ export default function ImportScreen() {
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
-              输入课程第一周周一的日期（年 / 月 / 日，月份和日期可只填一位，如 9 月 7 日），用于显示上课日期。
+              输入课程第一周周一的日期，用于显示上课日期。
             </ThemedText>
             <View style={styles.dateRow}>
               <View style={styles.dateField}>

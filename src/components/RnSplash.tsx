@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Image, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 
 /**
@@ -18,7 +18,8 @@ export function RnSplash({
   onReady?: () => void;
   imageSource?: ImageSourcePropType;
 }) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  // 惰性创建一次：放 state 而非 ref，render 期间即可安全读取（React 19 规则）。
+  const [opacity] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     if (visible) {
@@ -34,7 +35,7 @@ export function RnSplash({
       if (finished) onFadedOut?.();
     });
     return () => anim.stop();
-  }, [visible]);
+  }, [visible, opacity, onFadedOut]);
 
   if (!visible) return null;
 

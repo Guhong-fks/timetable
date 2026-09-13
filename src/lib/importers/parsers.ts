@@ -47,43 +47,10 @@ export interface CourseWarning {
 }
 
 // =============================================================================
-// Named regular-expression constants
-// =============================================================================
-
-/** Title words the with-title teacher regex accepts. */
-export const TEACHER_TITLES: readonly string[] = [
-  '老师',
-  '教授',
-  '副教授',
-  '讲师',
-  '助教',
-  '高级工程师',
-  '副研究员',
-  '研究员',
-  '工程师',
-] as const;
-
-function buildTeacherWithTitlePattern(titles: readonly string[] = TEACHER_TITLES): RegExp {
-  const titleAlternation = titles.map(escapeRegExp).join('|');
-  return new RegExp(
-    `^(?<address>.+?)[ \\t]+(?<name>(?:[\\u4e00-\\u9fa5]{1,4}·)?[\\u4e00-\\u9fa5]{2,4}(?:${titleAlternation}))$`,
-  );
-}
-
-export const TEACHER_WITH_TITLE_PATTERN: RegExp = buildTeacherWithTitlePattern();
-
-export const TEACHER_NAME_ONLY_PATTERN: RegExp =
-  /^(?<address>.+?)[ \t]+(?<name>(?:[\u4e00-\u9fa5]{1,4}·)?[\u4e00-\u9fa5]{2,4})$/;
-
-export const TEACHER_COMPOUND_SURNAME_PATTERN: RegExp =
-  /^(?<address>.+?)[ \t]+(?<name>(?:[\u4e00-\u9fa5]{1,4}·)?[\u4e00-\u9fa5]{2,6})$/;
-
-// =============================================================================
 // Parser: TimeSlot mapping
 // -----------------------------------------------------------------------------
 // Now returns TimeSlot | null so callers can decide whether to drop the
-// course or fall through to a default. Replaces the previous `return TEN`
-// silent-fallback behaviour, which masked invalid period numbers.
+// course or fall through to a default.
 // =============================================================================
 
 export const MIN_PERIOD = 1;
@@ -449,7 +416,3 @@ export function sanitizeInput(
 // =============================================================================
 // Helpers
 // =============================================================================
-
-function escapeRegExp(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}

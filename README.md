@@ -15,14 +15,14 @@
 - **解析报告**：导入后自动检测异常（缺失字段、格式问题），底部横幅提示，点击可展开详情；解析失败可一键**导出解析诊断**（含设备 IR 现场），便于反馈定位。
 - Expo Go 环境自动检测原生模块可用性，不可用时提前提示使用 Development Build。
 
-### ⏰ 课程提醒（上课前 15 分钟本地通知）
+### ⏰ 课程提醒（本地通知，默认课前 15 分钟）
 
-- **开启方式**：设置页 → "上课前 15 分钟提醒" 开关（需授予通知权限）。
+- **开启方式**：设置页 → 提醒开关（需授予通知权限）；可自定义提前分钟数（1–180，默认 15）。
 - **通知内容**：
   - 标题：课程名称
   - 正文：上课时间段（如 `08:00-09:30`）、上课地点、教师
 - **点击跳转**：点击通知直接打开 App 并跳转到对应周次的课程详情卡片（自动切周、弹出详情）。
-- **自动调度**：导入课表、修改学期开始日期、编辑/删除课程后自动重算并重新调度；通知仅针对当前学期已开启周次，过期自动清理。
+- **自动调度**：导入课表、修改学期开始日期、编辑/删除课程后自动重算（按课程增量重排，非全量清空重来）；通知仅针对当前学期已开启周次，过期自动清理。
 - **节次时间联动**：提醒时间读取设置页配置的节次时间（`period-times.v2` / `period-durations.v1`）；未配置时回退默认规则（08:00 起 45 分钟/节），保证"课前 15 分钟"始终按真实上课时间触发。
 - **持久化**：设置状态存入 `AsyncStorage`，重启后自动恢复调度。
 
@@ -58,12 +58,14 @@
 ### 🌗 主题与设置
 
 - 浅色 / 深色 / 跟随系统三种模式，配置持久化。
-- 设置页：当前文件名、课程总数、一键清空数据。
+- **自定义背景**：从相册选择课表背景图与启动页图，透明度可调，本地持久化。
+- 设置页：当前文件名、课程总数、一键清空数据；「关于」区提供**检查更新**（GitHub Release 对比 + APK 下载）。
 
 ### 🛡️ 安全与本地存储
 
 - 课表和设置**仅保存在设备本地**，不上传任何服务器。
 - 课表数据不离开设备：写入 `AsyncStorage` 的明文仅存于应用私有目录（Android 沙箱内），无网络上传路径。
+- 已关闭 Android 自动备份（`allowBackup=false`）：系统云备份 / ADB 备份不会带走课表数据，与"数据不出设备"口径一致。
 - 顶层 `ErrorBoundary` 兜底解析/渲染异常。
 - v1 → v4 存储格式自动迁移，旧数据无感升级。
 
@@ -78,7 +80,7 @@
 | 手势 | `react-native-gesture-handler` 2.32 + `react-native-reanimated` 4.5.1 + `react-native-worklets` 0.10.1 |
 | 文件解析 | `react-native-anydoc`（Rust，.docx/.doc/.xlsx → DocumentIR）+ position-first 识别器；`.ics` 日历文件纯 JS 解析（Expo Go 可用） |
 | 构建 | EAS Build（development / preview / production 三套 Profile） |
-| 测试 | Jest 29 + ts-jest，含 golden fixture 对比测试 |
+| 测试 | Jest 29 + jest-expo（支持组件测试），16 个测试文件 / 256 用例，含 golden fixture 对比 |
 
 
 
@@ -90,7 +92,7 @@
 - 课程单元格通常包含：课程代码、课程名称、周次范围、地点、教师（缺失字段自动降级并提示）。
 - 同一单元格内的多门课程会被自动拆分到对应节次；跨页断表自动拼接。
 - 支持 Word 的合并单元格（`rowspan` / `colspan`）。
-- 支持 `.docx` / `.doc` / `.xlsx`，单文件不超过 5 MB。
+- 支持 `.docx` / `.doc` / `.xlsx`，单文件不超过 5 MB；`.xlsx` 与 Word 共用同一 anydoc → 识别器管线（建议使用「星期 × 节次」矩阵式表格布局，扁平列表可能无法识别）。
 
 另外支持从课程表 App（WakeUp 超级课程表等）"导出到日历"生成的 `.ics` 文件：纯 JS 解析（无原生依赖），按学期开始日期换算周次，自动展开重复规则（RRULE / UNTIL / COUNT）并将同一课程的多条单周事件合并。
 
@@ -128,6 +130,18 @@ npx expo-doctor       # Expo 配置健康检查
 npm test              # Jest 单元测试
 ```
 
+## 发布与检查更新
+
+设置页「关于」区域提供**检查更新**入口：通过 GitHub API 查询仓库最新 Release，与当前版本号对比，有新版时弹出更新说明并提供 APK 下载。
+
+发布新版本流程：
+
+1. 把 `app.json` / `package.json` 的 `version` 升到新版本号（如 `1.0.5`）；
+2. 用 EAS 构建出 APK（`eas build -p android --profile production`）；
+3. 在 GitHub 仓库创建 Release，**Tag 填 `v{版本号}`（如 `v1.0.5`）**，把 APK 作为附件上传（任意文件名，扩展名需为 `.apk`）。
+
+> ⚠️ 仓库必须设为**公开**：App 匿名调用 GitHub API 查询最新 Release，私有仓库会返回 404，且私有仓库的 Release 附件也无法匿名下载。版本比较按语义化版本号（major.minor.patch）逐段比较，Tag 带不带 `v` 前缀均可。
+
 
 
 ## 项目结构
@@ -136,7 +150,7 @@ npm test              # Jest 单元测试
 src/
 ├─ app/                  Expo Router 页面与 Tab 导航
 │  └─ (tabs)/            Tab 页：课表、导入、设置
-├─ components/           主题化 UI 组件（ErrorBoundary、themed-text/view、CourseEditModal、ImportPreview、PeriodTimeModal）
+├─ components/           主题化 UI 组件（ErrorBoundary、themed-text/view、CourseEditModal、ImportPreview、PeriodTimeModal、LeadMinutesModal、RnSplash）
 ├─ constants/            主题色、布局常量、存储 key（theme、storage-keys）
 ├─ hooks/                React Hooks（useTheme、useTimetablePanGesture）
 ├─ lib/
@@ -145,15 +159,19 @@ src/
 │  ├─ reporting/         导入报告生成（CourseWarning）
 │  ├─ course-palette.ts  课程卡片调色板（网格与编辑弹窗共享）
 │  ├─ period-format.ts   节次默认值 / 时间与周次格式化工具
-│  ├─ notifications.ts   课程提醒调度（默认节次回退 + 用户配置节次时间）
+│  ├─ notifications.ts   课程提醒调度（增量重排 + 默认节次回退 + 用户配置节次时间）
+│  ├─ update-check.ts      检查更新（GitHub Release 对比 + APK 直链）
+│  ├─ test-notification.ts 测试通知发送
 │  ├─ widget-data.ts     桌面小组件数据同步
 │  ├─ security.ts        导入文件校验（白名单 / 大小 / URI 协议）
 │  └─ storage.ts         AsyncStorage 封装（超时保护）
 ├─ state/
-│  └─ timetable/         课表 Context + 存储 + v1→v4 迁移（index/types/storage/migrate）
+│  ├─ timetable/         课表 Context + 存储 + v1→v4 迁移（index/types/storage/migrate）
+│  ├─ background-context.tsx  自定义课表背景 / 启动页（相册选择 + 本地持久化）
+│  └─ theme-context.tsx  浅色 / 深色 / 跟随系统
 ├─ types/
 │  └─ timetable.ts       课表数据类型与工具函数
-├─ __tests__/            Jest 单元测试（含 golden fixture 对比）
+├─ __tests__/            Jest 单元测试（16 个文件：解析器、迁移、通知、格式化、组件）
 └─ __mocks__/            模块 mock（react-native-anydoc、nitro-modules）
 app.json                 Expo 应用配置
 eas.json                 EAS 构建 Profile

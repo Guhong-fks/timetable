@@ -42,7 +42,7 @@ export function isCurrentScheduleEpoch(epoch: number): boolean {
 // ---------------------------------------------------------------------------
 // 通知配置读取（共享：Context 与设置页使用同一份"读存储 → 归一化"逻辑）
 // ---------------------------------------------------------------------------
-export interface PeriodSchedulePrefs {
+interface PeriodSchedulePrefs {
   enabled: boolean;
   periodTimes: Record<number, string>;
   periodDurations: Record<number, number>;
@@ -308,7 +308,7 @@ export async function scheduleAllNotifications(
  * 不设置 sound/vibrationPattern/enableVibrate，频道即使用系统默认，
  * 用户可在系统设置中自由调整（App 重启也不会覆盖用户修改）。
  */
-export async function setupNotificationChannel(): Promise<void> {
+async function setupNotificationChannel(): Promise<void> {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync('class-reminders', {

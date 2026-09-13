@@ -288,7 +288,7 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
  *               same course (different periods/days) stay.
  *  'semester' — remove the course from the ENTIRE semester: every
  *               same-name course across all days/periods/weeks. */
-export type DeleteScope = 'this' | 'weekly' | 'semester';
+type DeleteScope = 'this' | 'weekly' | 'semester';
 
 function scopeDescription(
   scope: DeleteScope,

@@ -14,13 +14,15 @@ import {
 } from '@/lib/notifications';
 import { setStoredValue } from '@/lib/storage';
 import { sendTestNotification } from '@/lib/test-notification';
+import { checkForUpdates, getCurrentVersion, UpdateCheckError } from '@/lib/update-check';
 import { useBackground } from '@/state/background-context';
 import { useAppTheme } from '@/state/theme-context';
 import { useTimetable } from '@/state/timetable';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import type { AlertButton } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
@@ -34,6 +36,8 @@ export default function SettingsScreen() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [leadMinutes, setLeadMinutes] = useState(DEFAULT_LEAD_MINUTES);
   const [leadModalVisible, setLeadModalVisible] = useState(false);
+  const [currentVersion] = useState(() => getCurrentVersion());
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   // 加载通知设置
   useEffect(() => {
@@ -95,6 +99,58 @@ export default function SettingsScreen() {
       Alert.alert(result.success ? '成功' : '失败', result.message);
     } catch (error) {
       Alert.alert('错误', '发送测试通知失败：' + (error as Error).message);
+    }
+  };
+
+  /** 检查 GitHub Release 是否有新版本，有则弹出下载入口。 */
+  const handleCheckUpdate = async () => {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    try {
+      const info = await checkForUpdates();
+      if (!info.isUpdateAvailable) {
+        Alert.alert(
+          '已是最新版本',
+          info.currentVersion ? `当前已是最新版本 v${info.currentVersion}` : '当前已是最新版本'
+        );
+        return;
+      }
+      const message = [
+        `当前版本：v${info.currentVersion || '?'}`,
+        `最新版本：v${info.latestVersion}`,
+        info.releaseNotes ? `\n${info.releaseNotes}` : '',
+      ].join('\n');
+      const buttons: AlertButton[] = [{ text: '以后再说', style: 'cancel' }];
+      if (info.downloadUrl) {
+        buttons.push({
+          text: '下载更新',
+          onPress: () => {
+            void Linking.openURL(info.downloadUrl!).catch(() =>
+              Alert.alert('打开失败', '无法打开下载链接，请到 GitHub Release 页面手动下载。')
+            );
+          },
+        });
+      } else {
+        buttons.push({
+          text: '前往发布页',
+          onPress: () => {
+            void Linking.openURL(info.releaseUrl).catch(() =>
+              Alert.alert('打开失败', '无法打开 GitHub Release 页面。')
+            );
+          },
+        });
+      }
+      Alert.alert('发现新版本', message, buttons);
+    } catch (error) {
+      const isNotFound = error instanceof UpdateCheckError && error.code === 'NOT_FOUND';
+      Alert.alert(
+        '检查更新失败',
+        isNotFound
+          ? '仓库中暂无发布版本，请确认已配置 GitHub 仓库并发布 Release。'
+          : '无法连接 GitHub，请检查网络后重试。'
+      );
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -212,9 +268,6 @@ export default function SettingsScreen() {
                 </Pressable>
               </View>
             </View>
-            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
-              手动添加课程前可先在这里设置好周数和节数范围。
-            </ThemedText>
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.section}>
@@ -244,9 +297,6 @@ export default function SettingsScreen() {
                   </Pressable>
                 </View>
 
-                <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
-                  提醒声音与震动由系统通知设置管理，可在手机系统设置中调整。
-                </ThemedText>
               </>
             )}
 
@@ -290,7 +340,20 @@ export default function SettingsScreen() {
 
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">关于</ThemedText>
-            <ThemedText themeColor="textSecondary">课程表 v1.0.4</ThemedText>
+            <View style={styles.rowBetween}>
+              <ThemedText themeColor="textSecondary">课程表 {currentVersion ? `v${currentVersion}` : ''}</ThemedText>
+              <Pressable
+                onPress={() => void handleCheckUpdate()}
+                disabled={checkingUpdate}
+                accessibilityRole="button"
+                accessibilityLabel="检查更新"
+                style={[styles.checkUpdateBtn, checkingUpdate && styles.checkUpdateBtnDisabled]}
+              >
+                <ThemedText style={styles.checkUpdateText}>
+                  {checkingUpdate ? '检查中…' : '检查更新'}
+                </ThemedText>
+              </Pressable>
+            </View>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
               基于 Expo + React Native 构建
             </ThemedText>
@@ -335,4 +398,7 @@ const styles = StyleSheet.create({
   linkText: { color: '#4A90D9', fontWeight: '600' },
   customButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one + 2, borderRadius: 999, borderWidth: 1, borderColor: '#4A90D9' },
   customButtonText: { color: '#4A90D9', fontWeight: '600' },
+  checkUpdateBtn: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one + 2, borderRadius: 999, borderWidth: 1, borderColor: '#4A90D9' },
+  checkUpdateBtnDisabled: { opacity: 0.5 },
+  checkUpdateText: { color: '#4A90D9', fontWeight: '600' },
 });

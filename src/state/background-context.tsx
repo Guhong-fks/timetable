@@ -5,7 +5,7 @@ import { getStoredValue, setStoredValue } from '@/lib/storage';
 import { BG_IMAGE_KEY, BG_OPACITY_KEY, SPLASH_IMAGE_KEY } from '@/constants/storage-keys';
 
 /** 课表背景图默认透明度（浅色模式；深色模式会再减半）。 */
-export const DEFAULT_BG_OPACITY = 0.3;
+const DEFAULT_BG_OPACITY = 0.3;
 
 interface BackgroundContextValue {
   /** 用户自选课表背景图的本地 URI；null 表示用内置默认立绘。 */

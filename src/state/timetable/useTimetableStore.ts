@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScheduledCourse,
   TimetableData,
@@ -112,9 +112,7 @@ export function useTimetableStore(): TimetableStore {
   }, []);
 
   const addCourse = useCallback((course: Omit<ScheduledCourse, 'id'> & { id?: string }) => {
-    // Stable unique id: timestamp+random is enough for user-created rows
-    // (imports no longer collide since they carry their own ids, and a
-    // rename/edit keeps the id via updateCourse).
+    // 稳定唯一 id：时间戳+随机数；编辑/重命名经 updateCourse 保持 id 不变。
     const id = course.id ?? `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setCourses(current => {
       const next = [...current, { ...course, id } as ScheduledCourse];

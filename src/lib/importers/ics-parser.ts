@@ -420,7 +420,7 @@ function weekStartMonday(date: Date): number {
 }
 
 /** Wall-clock calendar date → 'YYYY-MM-DD' (zero-padded). */
-export function wallDateToIso(dt: IcsDateTime): string {
+function wallDateToIso(dt: IcsDateTime): string {
   const mm = String(dt.month).padStart(2, '0');
   const dd = String(dt.day).padStart(2, '0');
   return `${dt.year}-${mm}-${dd}`;

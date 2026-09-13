@@ -1,8 +1,7 @@
 /**
  * Period-schedule defaults and date/formatting helpers for the timetable UI.
  *
- * Extracted from index.tsx (formerly 1457-line screen) so the pure functions
- * are testable in isolation and the schedule screen only renders. The default
+ * Pure functions shared by the grid, schedule screens and tests. The default
  * period rule here (08:00 + (N-1)*50, 45 min each) is the SAME rule used by
  * src/lib/notifications.ts and the native widget.
  */

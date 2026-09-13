@@ -48,12 +48,9 @@ function SplashGate() {
     return () => clearTimeout(timer);
   }, [nativeHidden]);
 
-  // hydrate 完成 → 淡出自绘启动页。
-  useEffect(() => {
-    if (isHydrated) setShowRnSplash(false);
-  }, [isHydrated]);
-
-  // 兜底超时：无论 hydrate 是否完成，3s 后收起自绘启动页。
+  // hydrate 完成 → 收起自绘启动页：直接用 !isHydrated 组合 visible，
+  // 淡出动画交给 RnSplash 内部处理（不在 effect 中同步 setState，
+  // 避免 React 19 级联渲染告警）。
   useEffect(() => {
     const timer = setTimeout(() => setShowRnSplash(false), SPLASH_MAX_MS);
     return () => clearTimeout(timer);
@@ -61,7 +58,7 @@ function SplashGate() {
 
   return (
     <RnSplash
-      visible={showRnSplash}
+      visible={showRnSplash && !isHydrated}
       onReady={handleReady}
       imageSource={splashImageUri ? { uri: splashImageUri } : undefined}
     />
