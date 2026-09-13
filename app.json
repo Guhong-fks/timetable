@@ -2,7 +2,7 @@
   "expo": {
     "name": "课程表",
     "slug": "course-table-app",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "coursetableapp",
@@ -31,14 +31,13 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#FFFFFF",
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/icon.png",
           "imageWidth": 76
         }
       ],
       "expo-document-picker",
       "expo-image-picker",
       "./plugins/withNoBackup",
-      "./plugins/withSplashTransparent",
       [
         "@bittingz/expo-widgets",
         {

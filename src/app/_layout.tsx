@@ -28,7 +28,14 @@ function SplashGate() {
   const { isHydrated } = useTimetable();
   const { splashImageUri } = useBackground();
   const [showRnSplash, setShowRnSplash] = useState(true);
+  const [minElapsed, setMinElapsed] = useState(false);
   const [nativeHidden, setNativeHidden] = useState(false);
+
+  // 启动页至少停留 1s，避免 release 包 hydrate 太快导致立绘一闪而过。
+  useEffect(() => {
+    const timer = setTimeout(() => setMinElapsed(true), 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 大图真正解码完成后，再撤掉系统白屏，避免“系统白屏撤了、大图还没出来”的白缝。
   const handleReady = useCallback(() => {
@@ -48,9 +55,12 @@ function SplashGate() {
     return () => clearTimeout(timer);
   }, [nativeHidden]);
 
-  // hydrate 完成 → 收起自绘启动页：直接用 !isHydrated 组合 visible，
-  // 淡出动画交给 RnSplash 内部处理（不在 effect 中同步 setState，
-  // 避免 React 19 级联渲染告警）。
+  // hydrate 完成且已过最短停留时间 → 收起自绘启动页。
+  useEffect(() => {
+    if (isHydrated && minElapsed) setShowRnSplash(false);
+  }, [isHydrated, minElapsed]);
+
+  // 兜底超时：无论如何到点收起。
   useEffect(() => {
     const timer = setTimeout(() => setShowRnSplash(false), SPLASH_MAX_MS);
     return () => clearTimeout(timer);
@@ -58,7 +68,7 @@ function SplashGate() {
 
   return (
     <RnSplash
-      visible={showRnSplash && !isHydrated}
+      visible={showRnSplash}
       onReady={handleReady}
       imageSource={splashImageUri ? { uri: splashImageUri } : undefined}
     />
