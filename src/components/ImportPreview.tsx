@@ -107,12 +107,12 @@ export function ImportPreview({
                 hitSlop={8}
               >
                 <Ionicons
-                  name={row.included ? 'checkbox-outline' : 'square-outline'}
-                  size={20}
-                  color={row.included ? theme.backgroundSelected : theme.textSecondary}
+                  name={row.included ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={row.included ? '#208AEF' : theme.text}
                 />
               </Pressable>
-              <ThemedText type="small" themeColor="textSecondary">
+              <ThemedText type="small" style={{ color: theme.text, fontWeight: '600' }}>
                 {WEEK_DAY_LABELS[row.course.day]} 第{row.course.startPeriod}
                 {row.course.endPeriod !== row.course.startPeriod ? `-${row.course.endPeriod}` : ''}节 ·{' '}
                 {row.course.weekList.length
@@ -156,10 +156,10 @@ export function ImportPreview({
           style={[
             styles.footerBtn,
             styles.commitBtn,
-            { backgroundColor: theme.backgroundSelected, opacity: includedCount === 0 ? 0.4 : 1 },
+            { backgroundColor: '#208AEF', opacity: includedCount === 0 ? 0.4 : 1 },
           ]}
         >
-          <ThemedText style={{ color: theme.background, fontWeight: '700' }}>
+          <ThemedText style={{ color: '#FFFFFF', fontWeight: '700' }}>
             导入 {includedCount} 门课程
           </ThemedText>
         </Pressable>
