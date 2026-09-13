@@ -38,6 +38,7 @@
       "expo-document-picker",
       "expo-image-picker",
       "./plugins/withNoBackup",
+      "./plugins/withSplashTransparent",
       [
         "@bittingz/expo-widgets",
         {

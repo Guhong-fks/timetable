@@ -33,8 +33,9 @@ async function copyToDocuments(uri: string, name: string): Promise<string> {
 }
 
 async function pickOne(): Promise<string | null> {
-  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!perm.granted) return null;
+  // Android 上 launchImageLibraryAsync 走系统 Photo Picker / ACTION_GET_CONTENT，
+  // 本身不需要存储权限（Android 13+ 零权限，旧版本也由系统选择器逐次授权），
+  // 因此不请求任何媒体库权限，保持最小权限模型。
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     quality: 0.9,
