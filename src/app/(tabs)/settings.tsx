@@ -1,22 +1,24 @@
+import { LeadMinutesModal } from '@/components/LeadMinutesModal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { LeadMinutesModal } from '@/components/LeadMinutesModal';
 import { NOTIFICATION_ENABLED_KEY, NOTIFICATION_LEAD_MINUTES_KEY } from '@/constants/storage-keys';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import {
+  beginScheduleEpoch,
   cancelAllNotifications,
   DEFAULT_LEAD_MINUTES,
+  isCurrentScheduleEpoch,
   loadPeriodSchedule,
   requestNotificationPermissions,
   scheduleAllNotifications,
-  beginScheduleEpoch,
-  isCurrentScheduleEpoch,
 } from '@/lib/notifications';
 import { setStoredValue } from '@/lib/storage';
 import { sendTestNotification } from '@/lib/test-notification';
+import { useBackground } from '@/state/background-context';
 import { useAppTheme } from '@/state/theme-context';
 import { useTimetable } from '@/state/timetable';
 import { Ionicons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,6 +26,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function SettingsScreen() {
   const { mode, setMode } = useAppTheme();
   const { clearCourses, courses, importedFileName, semesterStartDate } = useTimetable();
+  const {
+    bgImageUri, bgOpacity, splashImageUri,
+    pickBgImage, resetBgImage, setBgOpacity,
+    pickSplashImage, resetSplashImage,
+  } = useBackground();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [leadMinutes, setLeadMinutes] = useState(DEFAULT_LEAD_MINUTES);
   const [leadModalVisible, setLeadModalVisible] = useState(false);
@@ -123,6 +130,58 @@ export default function SettingsScreen() {
                 onValueChange={() => setMode('auto')}
               />
             </View>
+          </ThemedView>
+
+          <ThemedView type="backgroundElement" style={styles.section}>
+            <ThemedText type="subtitle">课表背景</ThemedText>
+
+            <View style={styles.rowBetween}>
+              <ThemedText>背景图片</ThemedText>
+              <View style={styles.row}>
+                <Pressable onPress={() => void pickBgImage()} style={styles.linkBtn}>
+                  <ThemedText style={styles.linkText}>选择图片</ThemedText>
+                </Pressable>
+                {bgImageUri && (
+                  <Pressable onPress={() => void resetBgImage()} style={styles.linkBtn}>
+                    <ThemedText style={styles.linkText}>恢复默认</ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+              {bgImageUri ? '使用自定义图片' : '使用内置立绘'}
+            </ThemedText>
+
+            <View style={styles.rowBetween}>
+              <ThemedText>背景不透明度</ThemedText>
+              <ThemedText themeColor="textSecondary">{Math.round(bgOpacity * 100)}%</ThemedText>
+            </View>
+            <Slider
+              minimumValue={0.05}
+              maximumValue={1}
+              step={0.05}
+              value={bgOpacity}
+              onValueChange={(v) => void setBgOpacity(v)}
+              minimumTrackTintColor="#4A90D9"
+              maximumTrackTintColor="#ccc"
+            />
+
+            <View style={styles.rowBetween}>
+              <ThemedText>启动页图片</ThemedText>
+              <View style={styles.row}>
+                <Pressable onPress={() => void pickSplashImage()} style={styles.linkBtn}>
+                  <ThemedText style={styles.linkText}>选择图片</ThemedText>
+                </Pressable>
+                {splashImageUri && (
+                  <Pressable onPress={() => void resetSplashImage()} style={styles.linkBtn}>
+                    <ThemedText style={styles.linkText}>恢复默认</ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+              {splashImageUri ? '使用自定义图片' : '使用内置立绘'}
+            </ThemedText>
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.section}>
@@ -232,6 +291,10 @@ const styles = StyleSheet.create({
   testIcon: {},
   testText: { color: '#4A90D9', fontWeight: '600' },
   leadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.two, gap: Spacing.two },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  linkBtn: { paddingVertical: 2, paddingHorizontal: Spacing.two },
+  linkText: { color: '#4A90D9', fontWeight: '600' },
   customButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one + 2, borderRadius: 999, borderWidth: 1, borderColor: '#4A90D9' },
   customButtonText: { color: '#4A90D9', fontWeight: '600' },
 });

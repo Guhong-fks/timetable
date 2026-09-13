@@ -307,10 +307,10 @@ export default function ImportScreen() {
           <ThemedText type="subtitle">选择课表文件</ThemedText>
           <Pressable
             onPress={() => Platform.OS === 'web' ? input.current?.click() : void chooseNativeFile()}
-            style={[styles.button, { backgroundColor: theme.backgroundSelected }]}
+            style={[styles.button, { backgroundColor: '#208AEF' }]}
           >
-            <Ionicons name="cloud-upload-outline" size={20} color={theme.background} style={styles.buttonIcon} />
-            <ThemedText style={[styles.buttonText, { color: theme.background }]}>{loading ? '正在解析...' : '选择课表文件'}</ThemedText>
+            <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" style={styles.buttonIcon} />
+            <ThemedText style={[styles.buttonText, { color: '#FFFFFF' }]}>{loading ? '正在解析...' : '选择课表文件'}</ThemedText>
           </Pressable>
           {Platform.OS === 'web' && (
             <input

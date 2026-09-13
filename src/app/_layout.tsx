@@ -2,57 +2,70 @@ import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Linking from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { TimetableProvider, useTimetable } from '@/state/timetable';
 import { ThemeProvider } from '@/state/theme-context';
 import { DeepLinkProvider, useDeepLink } from '@/state/deep-link-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { RnSplash } from '@/components/RnSplash';
+import { BackgroundProvider, useBackground } from '@/state/background-context';
 
-// 显式接管启动图：保持原生启动图直到课表数据 hydrate 完成再隐藏，
-// 避免“启动图 → 正在读取课表… → 真实课表”的三段闪变。
+// 显式接管启动图：先保持原生启动图（白底小图标），等 RN 首帧渲染出
+// 自绘全屏启动页后再隐藏它，由 RnSplash 全屏大图接管到数据就绪。
 SplashScreen.preventAutoHideAsync().catch(() => {
   // 非原生平台 / 启动图已被系统隐藏时忽略。
 });
 
-/** 兜底：storage 异常导致 hydrate 卡住时，启动图最长停留时长（ms）。 */
+/** 兜底：storage 异常导致 hydrate 卡住时，启动页最长停留时长（ms）。 */
 const SPLASH_MAX_MS = 3000;
 
 /**
- * 在 hydration 完成后隐藏启动图。双 rAF 让 React 先提交真实课表首帧，
- * 启动图淡出时用户看到的就是完整课表；另设 3s 兜底超时防止白屏。
+ * 借鉴 B站做法：系统 Splash 只负责 RN 加载前的瞬间；
+ * RN 首帧后立刻隐藏系统 Splash，由 RnSplash（全屏大图）接管，
+ * 等课表数据 hydrate 完成后淡出，露出真实课表。
  */
 function SplashGate() {
   const { isHydrated } = useTimetable();
+  const { splashImageUri } = useBackground();
+  const [showRnSplash, setShowRnSplash] = useState(true);
+  const [nativeHidden, setNativeHidden] = useState(false);
 
-  useEffect(() => {
-    if (!isHydrated) return;
-    // Three frames: (1) React commits the hydrated first paint, (2) onLayout
-    // measure + recomputeBounds render lands, (3) hide — the user's first
-    // glimpse is a layout-stable grid, never the pre-measure frame.
-    let raf3 = 0;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        raf3 = requestAnimationFrame(() => {
-          SplashScreen.hideAsync().catch(() => {});
-        });
-      });
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      cancelAnimationFrame(raf3);
-    };
-  }, [isHydrated]);
+  // 大图真正解码完成后，再撤掉系统白屏，避免“系统白屏撤了、大图还没出来”的白缝。
+  const handleReady = useCallback(() => {
+    if (nativeHidden) return;
+    setNativeHidden(true);
+    SplashScreen.hideAsync().catch(() => {});
+  }, [nativeHidden]);
 
+  // 兜底：大图 onLoad 万一未触发，超时后也强制撤掉系统白屏。
   useEffect(() => {
     const timer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, SPLASH_MAX_MS);
+      if (!nativeHidden) {
+        setNativeHidden(true);
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [nativeHidden]);
+
+  // hydrate 完成 → 淡出自绘启动页。
+  useEffect(() => {
+    if (isHydrated) setShowRnSplash(false);
+  }, [isHydrated]);
+
+  // 兜底超时：无论 hydrate 是否完成，3s 后收起自绘启动页。
+  useEffect(() => {
+    const timer = setTimeout(() => setShowRnSplash(false), SPLASH_MAX_MS);
     return () => clearTimeout(timer);
   }, []);
 
-  return null;
+  return (
+    <RnSplash
+      visible={showRnSplash}
+      onReady={handleReady}
+      imageSource={splashImageUri ? { uri: splashImageUri } : undefined}
+    />
+  );
 }
 
 function DeepLinkHandler() {
@@ -101,11 +114,13 @@ export default function RootLayout() {
         <ErrorBoundary>
           <TimetableProvider>
             <DeepLinkProvider>
-              <DeepLinkHandler />
-              <SplashGate />
-              <Stack screenOptions={{ headerShown: false }}>
-                <Stack.Screen name="(tabs)" />
-              </Stack>
+              <BackgroundProvider>
+                <DeepLinkHandler />
+                <SplashGate />
+                <Stack screenOptions={{ headerShown: false }}>
+                  <Stack.Screen name="(tabs)" />
+                </Stack>
+              </BackgroundProvider>
             </DeepLinkProvider>
           </TimetableProvider>
         </ErrorBoundary>

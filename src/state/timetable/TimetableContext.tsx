@@ -56,12 +56,16 @@ export function TimetableProvider({ children }: PropsWithChildren) {
   const store = useTimetableStore();
   const [notificationsInitialized, setNotificationsInitialized] = useState(false);
 
-  // Initialize notifications once on mount
+  // Initialize notifications after first paint (idle), so it never competes
+  // with the splash→first-frame transition.
   useEffect(() => {
-    void (async () => {
-      await initializeNotifications();
-      setNotificationsInitialized(true);
-    })();
+    const task = requestIdleCallback(() => {
+      void (async () => {
+        await initializeNotifications();
+        setNotificationsInitialized(true);
+      })();
+    });
+    return () => cancelIdleCallback(task);
   }, []);
 
   // Hydrate once on mount. The store setters are stable (wrapped in

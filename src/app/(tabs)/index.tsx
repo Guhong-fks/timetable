@@ -1,6 +1,6 @@
 import { startTransition, useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
 import Animated, { useAnimatedStyle, withTiming, runOnJS, Easing } from 'react-native-reanimated';
-import { AppState, Modal, ScrollView, StyleSheet, View, Pressable, TextInput, useWindowDimensions } from 'react-native';
+import { AppState, Image, Modal, ScrollView, StyleSheet, View, Pressable, TextInput, useWindowDimensions } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useTimetablePan } from '@/hooks/useTimetablePanGesture';
@@ -30,6 +30,7 @@ import { coursesForWeek, coursesToTimetable, periodsArray, getTimeSlotMeta, WEEK
 import type { ReportWarning } from '@/lib/reporting/types';
 import type { ImportReport } from '@/state/timetable';
 import { useDeepLink } from '@/state/deep-link-context';
+import { useBackground } from '@/state/background-context';
 
 // Compact layout constants for mobile timetable
 // Day-column width: wide screens (≥ ~392dp) keep full 52px columns (fits
@@ -124,9 +125,9 @@ function renderCourseCardStatic(
       </ThemedText>
       <ThemedText
         type="small"
-        themeColor="textSecondary"
+        themeColor="text"
         maxFontSizeMultiplier={1}
-        style={[styles.courseLocation, { maxHeight: cardHeight - 6 - 26 - 5 }]}
+        style={[styles.courseLocation, { maxHeight: cardHeight - 6 - 26 - 5, fontWeight: '700' }]}
       >
         {course.location.address || '未填写'}
       </ThemedText>
@@ -193,7 +194,7 @@ const WeekGridBody = memo(function WeekGridBody({
     <View style={[styles.grid, { width: gridW }]}>
       {/* Time column header with month at top-left */}
       <View style={styles.timeHeader}>
-        <View style={[styles.timeHead, { backgroundColor: theme.backgroundElement, borderBottomColor: theme.textSecondary + alpha.border }]}>
+        <View style={[styles.timeHead, { borderBottomColor: theme.textSecondary + alpha.border }]}>
           {monthLabel && <ThemedText type="small" style={styles.monthLabel}>{monthLabel}</ThemedText>}
         </View>
         {WEEK_DAYS.map(day => {
@@ -207,7 +208,7 @@ const WeekGridBody = memo(function WeekGridBody({
                 styles.dayHead,
                 { width: dayWidth },
                 {
-                  backgroundColor: isToday ? theme.backgroundSelected : theme.backgroundElement,
+                  backgroundColor: isToday ? theme.backgroundSelected + '44' : 'transparent',
                   borderBottomColor: theme.textSecondary + alpha.border,
                 },
               ]}
@@ -229,7 +230,7 @@ const WeekGridBody = memo(function WeekGridBody({
 
       <View style={styles.gridBody}>
         {/* Time slots column - compact period numbers with times */}
-        <View style={[styles.timeColumn, { borderRightColor: theme.textSecondary + alpha.border, backgroundColor: theme.backgroundElement }]}>
+        <View style={[styles.timeColumn, { borderRightColor: theme.textSecondary + alpha.border }]}>
           {periodsArray(maxPeriods).map(period => (
             <View key={period} style={[styles.periodRow, { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + alpha.line }]}>
               <Pressable style={styles.timeCell} onPress={() => onPeriodPress(period)} accessibilityRole="button" accessibilityLabel={`修改第${period}节上课时间`}>
@@ -253,7 +254,7 @@ const WeekGridBody = memo(function WeekGridBody({
                 style={[
                   styles.gridLine,
                   { height: SLOT_BASE_HEIGHT, borderBottomColor: theme.textSecondary + alpha.lineSoft },
-                  { backgroundColor: (day === todayDay && weekIsCurrent) ? theme.backgroundSelected + '44' : theme.background },
+                  { backgroundColor: (day === todayDay && weekIsCurrent) ? theme.backgroundSelected + '44' : 'transparent' },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={`在${SHORT_DAY_LABELS[day]}第${period}节添加课程`}
@@ -280,6 +281,8 @@ const WeekGridBody = memo(function WeekGridBody({
 
 export default function TimetableScreen() {
   const theme = useTheme();
+  const { bgImageUri, bgOpacity } = useBackground();
+  const isDark = theme.background === '#10151B';
   const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods, lastReport, dismissReport, updateCourse, addCourse, deleteCourses } = useTimetable();
     const [selectedWeek, setSelectedWeek] = useState(1);
     const [weekInput, setWeekInput] = useState('1');
@@ -779,6 +782,12 @@ export default function TimetableScreen() {
 
   return (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* 背景立绘：极低透明度铺满屏幕，作为课表底纹，不干扰课卡阅读。 */}
+      <Image
+        source={bgImageUri ? { uri: bgImageUri } : require('../../../assets/images/splash.png')}
+        style={[styles.backdrop, { opacity: isDark ? bgOpacity * 0.5 : bgOpacity }]}
+        resizeMode="contain"
+      />
       <SafeAreaView style={styles.safe} edges={['right', 'left', 'bottom']}>
         {/* Compact header: week info + week selector */}
         <View style={styles.header}>
@@ -1149,6 +1158,15 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center', paddingHorizontal: 0, paddingBottom: 4, paddingTop: 0 },
 
