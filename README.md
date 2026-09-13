@@ -130,17 +130,6 @@ npx expo-doctor       # Expo 配置健康检查
 npm test              # Jest 单元测试
 ```
 
-## 发布与检查更新
-
-设置页「关于」区域提供**检查更新**入口：通过 GitHub API 查询仓库最新 Release，与当前版本号对比，有新版时弹出更新说明并提供 APK 下载。
-
-发布新版本流程：
-
-1. 把 `app.json` / `package.json` 的 `version` 升到新版本号（如 `1.0.5`）；
-2. 用 EAS 构建出 APK（`eas build -p android --profile production`）；
-3. 在 GitHub 仓库创建 Release，**Tag 填 `v{版本号}`（如 `v1.0.5`）**，把 APK 作为附件上传（任意文件名，扩展名需为 `.apk`）。
-
-> ⚠️ 仓库必须设为**公开**：App 匿名调用 GitHub API 查询最新 Release，私有仓库会返回 404，且私有仓库的 Release 附件也无法匿名下载。版本比较按语义化版本号（major.minor.patch）逐段比较，Tag 带不带 `v` 前缀均可。
 
 
 
