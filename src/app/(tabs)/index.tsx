@@ -1,36 +1,36 @@
-import { startTransition, useState, useMemo, useEffect, useCallback, useRef, memo } from 'react';
-import Animated, { useAnimatedStyle, withTiming, runOnJS, Easing } from 'react-native-reanimated';
-import { AppState, Image, Modal, ScrollView, StyleSheet, View, Pressable, TextInput, useWindowDimensions } from 'react-native';
-import type { LayoutChangeEvent } from 'react-native';
-import { GestureDetector } from 'react-native-gesture-handler';
-import { useTimetablePan } from '@/hooks/useTimetablePanGesture';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { CourseEditModal } from '@/components/CourseEditModal';
+import { PeriodTimeModal } from '@/components/PeriodTimeModal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing, GridLineAlpha } from '@/constants/theme';
-import { PERIOD_TIMES_KEY, PERIOD_DURATIONS_KEY } from '@/constants/storage-keys';
+import { PERIOD_DURATIONS_KEY, PERIOD_TIMES_KEY } from '@/constants/storage-keys';
+import { GridLineAlpha, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { useTimetablePan } from '@/hooks/useTimetablePanGesture';
 import { courseHue, withAlpha } from '@/lib/course-palette';
 import {
-  createDefaultPeriodTimes,
   createDefaultPeriodDurations,
+  createDefaultPeriodTimes,
+  formatDayDate,
+  formatMonth,
   formatPeriodRange,
   formatPeriodTimeRange,
   formatWeekDisplay,
-  formatDayDate,
-  formatMonth,
   parseLocalDate,
   startOfLocalDay,
 } from '@/lib/period-format';
-import { PeriodTimeModal } from '@/components/PeriodTimeModal';
-import { useTimetable } from '@/state/timetable';
-import { CourseEditModal } from '@/components/CourseEditModal';
-import { useTheme } from '@/hooks/use-theme';
-import { getStoredValue, setStoredValue } from '@/lib/storage';
-import { coursesForWeek, coursesToTimetable, periodsArray, getTimeSlotMeta, WEEK_DAYS, WEEK_DAY_LABELS, type ScheduledCourse, type TimetableData, type WeekDay, TimeSlot } from '@/types/timetable';
 import type { ReportWarning } from '@/lib/reporting/types';
-import type { ImportReport } from '@/state/timetable';
-import { useDeepLink } from '@/state/deep-link-context';
+import { getStoredValue, setStoredValue } from '@/lib/storage';
 import { useBackground } from '@/state/background-context';
+import { useDeepLink } from '@/state/deep-link-context';
+import type { ImportReport } from '@/state/timetable';
+import { useTimetable } from '@/state/timetable';
+import { coursesForWeek, coursesToTimetable, getTimeSlotMeta, periodsArray, TimeSlot, WEEK_DAY_LABELS, WEEK_DAYS, type ScheduledCourse, type TimetableData, type WeekDay } from '@/types/timetable';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LayoutChangeEvent } from 'react-native';
+import { AppState, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Animated, { Easing, runOnJS, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Compact layout constants for mobile timetable
 // Day-column width: wide screens (≥ ~392dp) keep full 52px columns (fits
@@ -793,7 +793,7 @@ export default function TimetableScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <ThemedText themeColor="textSecondary" style={styles.summaryText}>
-              {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '点击空白格手动添加课程'}
+              {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '点击空白格手动添加课程，请先在设置中确定周数和节数'}
             </ThemedText>
           </View>
           <View style={styles.weekControls}>

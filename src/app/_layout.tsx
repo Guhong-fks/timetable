@@ -1,14 +1,14 @@
-import { Stack } from 'expo-router';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as Linking from 'expo-linking';
-import * as SplashScreen from 'expo-splash-screen';
-import { useCallback, useEffect, useState } from 'react';
-import { TimetableProvider, useTimetable } from '@/state/timetable';
-import { ThemeProvider } from '@/state/theme-context';
-import { DeepLinkProvider, useDeepLink } from '@/state/deep-link-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RnSplash } from '@/components/RnSplash';
 import { BackgroundProvider, useBackground } from '@/state/background-context';
+import { DeepLinkProvider, useDeepLink } from '@/state/deep-link-context';
+import { ThemeProvider } from '@/state/theme-context';
+import { TimetableProvider, useTimetable } from '@/state/timetable';
+import * as Linking from 'expo-linking';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { useCallback, useEffect, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // 显式接管启动图：先保持原生启动图（白底小图标），等 RN 首帧渲染出
 // 自绘全屏启动页后再隐藏它，由 RnSplash 全屏大图接管到数据就绪。
@@ -20,7 +20,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {
 const SPLASH_MAX_MS = 3000;
 
 /**
- * 借鉴 B站做法：系统 Splash 只负责 RN 加载前的瞬间；
+ * 系统 Splash 只负责 RN 加载前的瞬间；
  * RN 首帧后立刻隐藏系统 Splash，由 RnSplash（全屏大图）接管，
  * 等课表数据 hydrate 完成后淡出，露出真实课表。
  */

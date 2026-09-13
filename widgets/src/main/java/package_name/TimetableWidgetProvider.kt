@@ -157,6 +157,25 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         }
     }
 
+    /**
+     * 尺寸变化回调：用户拖动 resize 小组件时，Launcher 调用
+     * AppWidgetManager.updateAppWidgetOptions 并触发本回调。
+     * 注意：AppWidgetProvider 的默认实现是空的，不会自动重新渲染，
+     * 必须在这里用最新 options（getAppWidgetOptions 已更新）重画，
+     * 否则桌面会继续拉伸旧布局（表现为"课程高度被拉高、课程数不变"）。
+     */
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle?
+    ) {
+        val w = newOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, -1)
+        val h = newOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, -1)
+        Log.d("TimetableWidget", "id=$appWidgetId optionsChanged w=${w} h=${h}")
+        updateWidget(context, appWidgetManager, appWidgetId)
+    }
+
     private fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val prefs = context.getSharedPreferences(prefsName(context.packageName), Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_DATA, null)
