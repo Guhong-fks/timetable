@@ -12,6 +12,13 @@ import {
   requestNotificationPermissions,
   scheduleAllNotifications,
 } from '@/lib/notifications';
+import {
+  applyHotUpdate,
+  checkHotUpdate,
+  getRuntimeVersion,
+  getUpdateChannel,
+  isHotUpdateSupported,
+} from '@/lib/hot-update';
 import { setStoredValue } from '@/lib/storage';
 import { sendTestNotification } from '@/lib/test-notification';
 import { checkForUpdates, getCurrentVersion, UpdateCheckError } from '@/lib/update-check';
@@ -38,6 +45,11 @@ export default function SettingsScreen() {
   const [leadModalVisible, setLeadModalVisible] = useState(false);
   const [currentVersion] = useState(() => getCurrentVersion());
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  // expo-updates 配置在构建时固定，组件内只读一次。
+  const [hotUpdateSupported] = useState(() => isHotUpdateSupported());
+  const [updateChannel] = useState(() => getUpdateChannel());
+  const [runtimeVersion] = useState(() => getRuntimeVersion());
 
   // 加载通知设置
   useEffect(() => {
@@ -102,46 +114,92 @@ export default function SettingsScreen() {
     }
   };
 
-  /** 检查 GitHub Release 是否有新版本，有则弹出下载入口。 */
+  /** 下载热更新并重启应用（下载期间按钮显示"更新中…"，重启后新版本即刻生效）。 */
+  const handleApplyHotUpdate = async () => {
+    setApplyingUpdate(true);
+    try {
+      const applied = await applyHotUpdate();
+      if (!applied) {
+        // 检查时可用、下载时已失效（如服务端撤回），提示后静默结束。
+        Alert.alert('未发现新更新', '刚检测到的更新已不可用，可能已被发布方撤回。');
+      }
+      // applied === true 时 reloadAsync 已触发应用重启，无需再提示。
+    } catch (error) {
+      Alert.alert('更新失败', error instanceof Error ? error.message : String(error));
+    } finally {
+      setApplyingUpdate(false);
+    }
+  };
+
+  /**
+   * 检查更新：优先 EAS Update 热更新（JS 增量，下载后立即生效、无需重装 APK），
+   * 无热更新时回退到 GitHub Release 对比（原生改动 → 新 APK 下载）。
+   */
   const handleCheckUpdate = async () => {
-    if (checkingUpdate) return;
+    if (checkingUpdate || applyingUpdate) return;
     setCheckingUpdate(true);
     try {
-      const info = await checkForUpdates();
-      if (!info.isUpdateAvailable) {
+      const [ota, gh] = await Promise.allSettled([
+        checkHotUpdate(),
+        checkForUpdates(),
+      ]);
+
+      // 1) 热更新优先
+      if (ota.status === 'fulfilled' && ota.value.available) {
+        Alert.alert(
+          '发现热更新',
+          '检测到新的更新内容，下载后立即生效，无需重新安装 APK。',
+          [
+            { text: '以后再说', style: 'cancel' },
+            { text: '立即更新', onPress: () => void handleApplyHotUpdate() },
+          ]
+        );
+        return;
+      }
+
+      // 2) 无热更新时回退到 GitHub Release 的原生更新（新 APK）
+      if (gh.status === 'fulfilled') {
+        const info = gh.value;
+        if (info.isUpdateAvailable) {
+          const message = [
+            `当前版本：v${info.currentVersion || '?'}`,
+            `最新版本：v${info.latestVersion}`,
+            info.releaseNotes ? `\n${info.releaseNotes}` : '',
+          ].join('\n');
+          const buttons: AlertButton[] = [{ text: '以后再说', style: 'cancel' }];
+          if (info.downloadUrl) {
+            buttons.push({
+              text: '下载更新',
+              onPress: () => {
+                void Linking.openURL(info.downloadUrl!).catch(() =>
+                  Alert.alert('打开失败', '无法打开下载链接，请到 GitHub Release 页面手动下载。')
+                );
+              },
+            });
+          } else {
+            buttons.push({
+              text: '前往发布页',
+              onPress: () => {
+                void Linking.openURL(info.releaseUrl).catch(() =>
+                  Alert.alert('打开失败', '无法打开 GitHub Release 页面。')
+                );
+              },
+            });
+          }
+          Alert.alert('发现新版本', message, buttons);
+          return;
+        }
+
+        // 3) 两路均无更新
         Alert.alert(
           '已是最新版本',
           info.currentVersion ? `当前已是最新版本 v${info.currentVersion}` : '当前已是最新版本'
         );
         return;
       }
-      const message = [
-        `当前版本：v${info.currentVersion || '?'}`,
-        `最新版本：v${info.latestVersion}`,
-        info.releaseNotes ? `\n${info.releaseNotes}` : '',
-      ].join('\n');
-      const buttons: AlertButton[] = [{ text: '以后再说', style: 'cancel' }];
-      if (info.downloadUrl) {
-        buttons.push({
-          text: '下载更新',
-          onPress: () => {
-            void Linking.openURL(info.downloadUrl!).catch(() =>
-              Alert.alert('打开失败', '无法打开下载链接，请到 GitHub Release 页面手动下载。')
-            );
-          },
-        });
-      } else {
-        buttons.push({
-          text: '前往发布页',
-          onPress: () => {
-            void Linking.openURL(info.releaseUrl).catch(() =>
-              Alert.alert('打开失败', '无法打开 GitHub Release 页面。')
-            );
-          },
-        });
-      }
-      Alert.alert('发现新版本', message, buttons);
-    } catch (error) {
+
+      // GitHub 检查失败（热更新检查已内部降级，不抛出）
+      const error = gh.reason;
       const isNotFound = error instanceof UpdateCheckError && error.code === 'NOT_FOUND';
       Alert.alert(
         '检查更新失败',
@@ -344,19 +402,24 @@ export default function SettingsScreen() {
               <ThemedText themeColor="textSecondary">课程表 {currentVersion ? `v${currentVersion}` : ''}</ThemedText>
               <Pressable
                 onPress={() => void handleCheckUpdate()}
-                disabled={checkingUpdate}
+                disabled={checkingUpdate || applyingUpdate}
                 accessibilityRole="button"
                 accessibilityLabel="检查更新"
-                style={[styles.checkUpdateBtn, checkingUpdate && styles.checkUpdateBtnDisabled]}
+                style={[styles.checkUpdateBtn, (checkingUpdate || applyingUpdate) && styles.checkUpdateBtnDisabled]}
               >
                 <ThemedText style={styles.checkUpdateText}>
-                  {checkingUpdate ? '检查中…' : '检查更新'}
+                  {checkingUpdate ? '检查中…' : applyingUpdate ? '更新中…' : '检查更新'}
                 </ThemedText>
               </Pressable>
             </View>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
               基于 Expo + React Native 构建
             </ThemedText>
+            {hotUpdateSupported && (
+              <ThemedText themeColor="textSecondary" style={styles.hint}>
+                更新通道：{updateChannel ?? 'default'} · runtime {runtimeVersion || currentVersion}
+              </ThemedText>
+            )}
           </ThemedView>
         </ScrollView>
 

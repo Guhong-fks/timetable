@@ -186,7 +186,6 @@ const WeekGridBody = memo(function WeekGridBody({
   onPeriodPress,
   onEmptySlotPress,
 }: WeekGridBodyProps) {
-  // Per-scheme hairline alphas (dark mode needs stronger grid lines).
   const alpha = theme.background === '#10151B' ? GridLineAlpha.dark : GridLineAlpha.light;
   // Full week width = time column + 7 compressed day columns (fits viewport).
   const gridW = TIME_COL_WIDTH + dayWidth * 7;
@@ -783,10 +782,11 @@ export default function TimetableScreen() {
   return (
     <ThemedView style={[styles.container, { backgroundColor: theme.background }]}>
       {/* 背景立绘：极低透明度铺满屏幕，作为课表底纹，不干扰课卡阅读。 */}
+      {/* 课表背景图：固定不动，铺满整个内容区（tab/导航键之外）。 */}
       <Image
         source={bgImageUri ? { uri: bgImageUri } : require('../../../assets/images/splash.png')}
         style={[styles.backdrop, { opacity: isDark ? bgOpacity * 0.5 : bgOpacity }]}
-        resizeMode="contain"
+        resizeMode="cover"
       />
       <SafeAreaView style={styles.safe} edges={['right', 'left', 'bottom']}>
         {/* Compact header: week info + week selector */}

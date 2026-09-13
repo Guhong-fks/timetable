@@ -59,7 +59,13 @@
 
 - 浅色 / 深色 / 跟随系统三种模式，配置持久化。
 - **自定义背景**：从相册选择课表背景图与启动页图，透明度可调，本地持久化。
-- 设置页：当前文件名、课程总数、一键清空数据；「关于」区提供**检查更新**（GitHub Release 对比 + APK 下载）。
+- 设置页：当前文件名、课程总数、一键清空数据；「关于」区提供**检查更新**（优先 EAS Update 热更新，无热更新时回退 GitHub Release 对比 + APK 下载）。
+
+### ♻️ 热更新（OTA，小改动免重装）
+
+- **机制**：基于 `expo-updates` + EAS Update。原生构建启动时自动检查更新（`CHECK_ON_LAUNCH=ALWAYS`），有更新则后台下载、下次启动生效；设置页「检查更新」可**立即下载并重启应用**，无需重新安装 APK。
+- **适用范围**：纯 JS/TS 改动（UI 调整、逻辑修复、文案、解析规则等）发布后用户自动收到，无需重新构建 APK。
+- **版本规则**：`runtimeVersion` 采用 `appVersion` 策略——热更新只对与当前版本号一致的安装包生效。**发布热更新时不要改 `app.json` 的 version**；只有原生代码改动才需要升版本 + 重新构建 APK（走 GitHub Release）。
 
 ### 🛡️ 安全与本地存储
 
@@ -80,6 +86,7 @@
 | 手势 | `react-native-gesture-handler` 2.32 + `react-native-reanimated` 4.5.1 + `react-native-worklets` 0.10.1 |
 | 文件解析 | `react-native-anydoc`（Rust，.docx/.doc/.xlsx → DocumentIR）+ position-first 识别器；`.ics` 日历文件纯 JS 解析（Expo Go 可用） |
 | 构建 | EAS Build（development / preview / production 三套 Profile） |
+| 热更新 | EAS Update（`expo-updates`，runtimeVersion = appVersion，启动自动检查 + 设置页主动检查） |
 | 测试 | Jest 29 + jest-expo（支持组件测试），16 个测试文件 / 256 用例，含 golden fixture 对比 |
 
 
@@ -130,6 +137,29 @@ npx expo-doctor       # Expo 配置健康检查
 npm test              # Jest 单元测试
 ```
 
+## 发布与热更新
+
+> 当前项目只走 **preview** 构建分发（未上架 Google Play），因此热更新一律发到 **preview 通道**。
+
+### 小改动：热更新（无需重新打包）
+
+```bash
+npm run update:preview   # 等价于 eas update --channel preview --auto
+```
+
+- 发布前确认已登录 EAS（`eas login`）且项目已关联（`app.json` 已有 `projectId`，无需重复关联）。
+- 发布后，已安装的安装包（preview 构建，通道 preview）**下次打开 App 会自动检查并后台下载，再下一次打开即用新版本**；用户也可在 设置 → 检查更新 立即下载并重启生效。
+- `--auto` 以最近一条 git commit 作为更新说明；也可手动指定：`eas update --channel preview --message "修复课程详情弹窗错位"`。
+- **纯 JS/TS 改动发布热更新时，不要修改 `app.json` 的 version**（`runtimeVersion = appVersion`，改版本会让旧安装包拒绝新更新）。
+
+### 原生改动：重新构建 APK
+
+1. 升 `app.json` / `package.json` 的 version（新 runtimeVersion）；
+2. `eas build --platform android --profile preview`（产 APK，分发给测试/用户安装）；
+3. 将 APK 作为附件发布到 GitHub Release（Tag `v{版本号}`），供旧版本用户走"检查更新 → 下载 APK"路径升级。
+
+> ⚠️ 热更新通道必须与安装包构建时的 profile 通道一致：**preview 构建只接收 `--channel preview` 发布的更新**（`npm run update:preview`）。设置页「关于」区会显示当前安装包的更新通道，可据此核对。
+> 若以后上架 Google Play / 正式分发，改用 `--profile production` 构建并把热更新发到 `--channel production`（`npm run update:production`）。
 
 
 
@@ -150,6 +180,7 @@ src/
 │  ├─ period-format.ts   节次默认值 / 时间与周次格式化工具
 │  ├─ notifications.ts   课程提醒调度（增量重排 + 默认节次回退 + 用户配置节次时间）
 │  ├─ update-check.ts      检查更新（GitHub Release 对比 + APK 直链）
+│  ├─ hot-update.ts        热更新（expo-updates OTA：检查 / 下载 / 重启）
 │  ├─ test-notification.ts 测试通知发送
 │  ├─ widget-data.ts     桌面小组件数据同步
 │  ├─ security.ts        导入文件校验（白名单 / 大小 / URI 协议）
@@ -187,6 +218,7 @@ assets/                  图标、启动图
 - [x] 解析诊断导出（识别失败时分享 IR 现场供反馈）
 - [x] 课程提醒（上课前 15 分钟本地通知）
 - [x] 桌面小部件（Android App Widget）
+- [x] 热更新（EAS Update OTA，小改动免重装）
 
 ## 许可证
 

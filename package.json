@@ -49,7 +49,9 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "update:production": "eas update --channel production --auto",
+    "update:preview": "eas update --channel preview --auto"
   },
   "private": true
 }
