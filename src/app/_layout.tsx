@@ -56,9 +56,10 @@ function SplashGate() {
   }, [nativeHidden]);
 
   // hydrate 完成且已过最短停留时间 → 收起自绘启动页。
-  useEffect(() => {
-    if (isHydrated && minElapsed) setShowRnSplash(false);
-  }, [isHydrated, minElapsed]);
+  // isHydrated / minElapsed 都是单调标志（false→true 后不再回退），因此
+  // "是否已就绪"可以安全地在渲染期推导，无需在 effect 体内同步 setState
+  // （react-hooks/set-state-in-effect）。
+  const readyToHide = isHydrated && minElapsed;
 
   // 兜底超时：无论如何到点收起。
   useEffect(() => {
@@ -68,7 +69,7 @@ function SplashGate() {
 
   return (
     <RnSplash
-      visible={showRnSplash}
+      visible={showRnSplash && !readyToHide}
       onReady={handleReady}
       imageSource={splashImageUri ? { uri: splashImageUri } : undefined}
     />

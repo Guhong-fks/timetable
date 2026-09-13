@@ -34,7 +34,7 @@ import {
 } from '../security';
 import { recognizeCourses, type IrTableBlock } from '@/lib/engine/recognizer';
 import { collectParseDiagnostics, serializeDiagnostics } from '@/lib/engine/parseDiagnostics';
-import { parseIcsTimetable } from '@/lib/importers/ics-parser';
+import { parseIcsTimetable, type IcsPeriodSchedule } from '@/lib/importers/ics-parser';
 
 // Type-only reference to react-native-anydoc: produces no runtime import, so
 // Nitro is not loaded at boot. The runtime value is fetched via
@@ -281,7 +281,11 @@ type TimetableFile =
   | { name: string; size?: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> }
   | { name: string; size?: number; type?: string; uri: string };
 
-export async function parseTimetableFile(file: TimetableFile, icsSemesterStartInput?: string): Promise<ImportResult> {
+export async function parseTimetableFile(
+  file: TimetableFile,
+  icsSemesterStartInput?: string,
+  icsPeriodSchedule?: IcsPeriodSchedule,
+): Promise<ImportResult> {
   const validation = validateFile(file);
   if (!validation.valid) throw new Error(validation.error);
 
@@ -293,7 +297,7 @@ export async function parseTimetableFile(file: TimetableFile, icsSemesterStartIn
   const lower = file.name.toLowerCase();
   if (lower.endsWith('.ics')) {
     const icsSemesterStart = icsSemesterStartInput && icsSemesterStartInput.trim() ? icsSemesterStartInput.trim() : undefined;
-    return parseIcsFile(buffer, icsSemesterStart);
+    return parseIcsFile(buffer, icsSemesterStart, icsPeriodSchedule);
   }
   if (lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.xlsx')) {
     return parseDocxFile(buffer);
@@ -309,30 +313,95 @@ export async function parseTimetableFile(file: TimetableFile, icsSemesterStartIn
 // 全部课程退化为 1..18 周并附明确提示，让用户填好日期再导一次。
 // =============================================================================
 
-function decodeIcsText(buffer: ArrayBuffer): string {
+/**
+ * Decode .ics bytes to text, robust against the encodings real exporters
+ * produce:
+ *   - BOM sniffing: UTF-8 (EF BB BF), UTF-16LE (FF FE), UTF-16BE (FE FF).
+ *   - No BOM: strict UTF-8 (RFC 5545 default). GBK / other legacy encodings
+ *     (some Windows schedule apps) fail strict decode — we surface a clear
+ *     localised error instead of silently importing U+FFFD garbage, since
+ *     TextDecoder('gbk') is unavailable on Hermes.
+ */
+export function decodeIcsText(buffer: ArrayBuffer): { text: string; encoding: 'utf-8' | 'utf-16le' | 'utf-16be' } {
   const bytes = new Uint8Array(buffer);
-  // BOM sniffing first; then heuristic: ICS with Chinese content is UTF-8 in
-  // practice (RFC 5545 default), but Windows 导出可能带 GBK — 转 GBK 需要
-  // 依赖（TextDecoder('gbk') 在 Hermes 上不可用），此处按 UTF-8 严格解码，
-  // 失败时给出明确错误而不是乱码入库。
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
-    return new TextDecoder('utf-8').decode(buffer.slice(3));
+    return { text: new TextDecoder('utf-8').decode(buffer.slice(3)), encoding: 'utf-8' };
   }
-  return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return { text: decodeUtf16Le(new Uint8Array(buffer.slice(2))), encoding: 'utf-16le' };
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return { text: decodeUtf16Be(new Uint8Array(buffer.slice(2))), encoding: 'utf-16be' };
+  }
+  try {
+    return { text: new TextDecoder('utf-8', { fatal: true }).decode(buffer), encoding: 'utf-8' };
+  } catch {
+    throw new Error('文件编码无法识别（可能是 GBK 等旧编码）：请在原课表 App 中导出时选择 UTF-8 编码，或另存为 UTF-8 后再导入');
+  }
 }
 
-async function parseIcsFile(buffer: ArrayBuffer, icsSemesterStart?: string): Promise<ImportResult> {
+/**
+ * Manual UTF-16 decoders: Expo Winter / Hermes' TextDecoder only supports
+ * 'utf-8' (an unknown-encoding RangeError is thrown for utf-16le), so both
+ * BOM variants are decoded by hand. Surrogate pairs are joined correctly.
+ */
+function decodeUtf16Le(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i + 1 < bytes.length; i += 2) {
+    const code = bytes[i] | (bytes[i + 1] << 8);
+    if (code >= 0xd800 && code <= 0xdbff && i + 3 < bytes.length) {
+      const low = bytes[i + 2] | (bytes[i + 3] << 8);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        out += String.fromCharCode(code, low);
+        i += 2;
+        continue;
+      }
+    }
+    out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+function decodeUtf16Be(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i + 1 < bytes.length; i += 2) {
+    const code = (bytes[i] << 8) | bytes[i + 1];
+    if (code >= 0xd800 && code <= 0xdbff && i + 3 < bytes.length) {
+      const low = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        out += String.fromCharCode(code, low);
+        i += 2;
+        continue;
+      }
+    }
+    out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+async function parseIcsFile(
+  buffer: ArrayBuffer,
+  icsSemesterStart?: string,
+  icsPeriodSchedule?: IcsPeriodSchedule,
+): Promise<ImportResult> {
   const report = ParseReport.getInstance();
   report.clear();
 
   let text: string;
   try {
-    text = decodeIcsText(buffer);
-  } catch {
+    text = decodeIcsText(buffer).text;
+  } catch (err) {
+    // decodeIcsText throws a localised Chinese message — pass it through so
+    // the user sees the actionable guidance; anything else becomes generic.
+    if (err instanceof Error && /[一-龥]/.test(err.message)) throw err;
     throw new Error('文件编码无法识别，请用 UTF-8 编码重新导出 .ics 文件');
   }
 
-  const { courses, warnings, inferredSemesterStart } = parseIcsTimetable(text, icsSemesterStart);
+  const { courses, warnings, inferredSemesterStart } = parseIcsTimetable(
+    text,
+    icsSemesterStart,
+    icsPeriodSchedule,
+  );
 
   for (const w of warnings) {
     report.addWarningFromParts(w.category, w.severity, w.message, undefined, w.raw);

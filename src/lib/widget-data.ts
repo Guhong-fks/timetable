@@ -35,8 +35,9 @@ export interface WidgetCourseData {
 /**
  * 读取用户在 App 里配置的节次时间表（无配置时返回空对象，原生端回退默认规则：
  * 第 N 节 = 08:00 + (N-1)*50min，每节 45 分钟）。
+ * 导出供导入页使用：.ics 无节次标记的事件按该时间轴反推节次。
  */
-async function loadPeriodSchedule(): Promise<{
+export async function loadPeriodSchedule(): Promise<{
   periodTimes: Record<string, string>;
   periodDurations: Record<string, number>;
 }> {

@@ -5,6 +5,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { ImportDiagnosticsError, isNativeBridgeAvailable, parseTimetableFile } from '@/lib/importers/timetable-importer';
 import type { ReportWarning } from '@/lib/reporting/types';
+import { loadPeriodSchedule } from '@/lib/widget-data';
 import { useTimetable } from '@/state/timetable';
 import type { ScheduledCourse } from '@/types/timetable';
 import { Ionicons } from '@expo/vector-icons';
@@ -74,7 +75,9 @@ export default function ImportScreen() {
       // 传入 ISO 'YYYY-MM-DD'（weekAnchorFromIso 只认该格式；未填/不完整时
       // 传 undefined，ICS 退化为 1-18 周并给出提示）。
       const iso = buildSemesterIso(dateYear, dateMonth, dateDay) ?? undefined;
-      const result = await parseTimetableFile(file, iso);
+      // ICS 无节次标记的事件按 App 配置的节次时间轴反推节次（Tier B）。
+      const periodSchedule = await loadPeriodSchedule();
+      const result = await parseTimetableFile(file, iso, periodSchedule);
       // Route through the preview: the user confirms/fixes the recognized
       // list before anything touches the store.
       setPending({
@@ -116,7 +119,17 @@ export default function ImportScreen() {
         setDateDay(String(Number(parts[3])));
       }
     }
-    setStatus(`已导入 ${kept.length} 门课程${pending.report.warnings.length ? `（${pending.report.warnings.length} 条警告，请查看课表底部详情）` : '。'}`);
+    const statusParts = [`已导入 ${kept.length} 门课程`];
+    if (pending.report.warnings.length) {
+      statusParts.push(`（${pending.report.warnings.length} 条警告，请查看课表底部详情）`);
+    }
+    if (!semesterStartDate && startDate) {
+      // .ics 无用户学期起点时采用了日历推断值 — 显式提示，避免用户误以为
+      // 是自己填的日期导致周次错位。
+      statusParts.push(`学期开始日期已按日历推断为 ${startDate}，请核对`);
+    }
+    statusParts.push('。');
+    setStatus(statusParts.join(''));
     setPending(null);
   };
 

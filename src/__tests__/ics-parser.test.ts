@@ -18,6 +18,8 @@ import {
   splitLocationTeacher,
   weekAnchorFromIso,
   weekOfWallDate,
+  inferPeriodFromTime,
+  minutesOfHm,
 } from '@/lib/importers/ics-parser';
 
 type FsLike = {
@@ -75,6 +77,27 @@ describe('ics content lines', () => {
     expect(extractPeriodMarker('第8节')).toEqual({ start: 8, end: 8 });
     expect(extractPeriodMarker('第9 - 8节')).toBeNull(); // inverted
     expect(extractPeriodMarker('无节次标记')).toBeNull();
+  });
+
+  it('extracts full-width dash period markers (第1－2节)', () => {
+    expect(extractPeriodMarker('第1－2节')).toEqual({ start: 1, end: 2 });
+    expect(extractPeriodMarker('第3－5节')).toEqual({ start: 3, end: 5 });
+  });
+
+  it('infers periods from the configured period-times axis', () => {
+    const axis = { '1': '08:00', '2': '08:50', '3': '09:40', '4': '10:30', '5': '11:20' };
+    expect(inferPeriodFromTime(8 * 60, axis)).toBe(1);
+    expect(inferPeriodFromTime(9 * 60 + 50, axis)).toBe(3);
+    expect(inferPeriodFromTime(10 * 60 + 30, axis)).toBe(4);
+    // Just after a period start (within tolerance) still maps to it.
+    expect(inferPeriodFromTime(9 * 60 + 42, axis)).toBe(3);
+    // Before the first period → nothing (caller falls back to 1).
+    expect(inferPeriodFromTime(7 * 60, axis)).toBeNull();
+    // Empty axis → null.
+    expect(inferPeriodFromTime(9 * 60, {})).toBeNull();
+    expect(minutesOfHm('09:50')).toBe(590);
+    expect(minutesOfHm('9:5')).toBeNull();
+    expect(minutesOfHm('25:00')).toBeNull();
   });
 
   it('splits LOCATION into address + trailing CJK teacher', () => {
@@ -239,7 +262,7 @@ describe('real WakeUp export (课表.ics)', () => {
 // ---------------------------------------------------------------------------
 
 describe('universal import shapes', () => {
-  it('Tier B: generic calendar event without DESCRIPTION gets 1-1 periods and full weeks', () => {
+  it('Tier B: generic event without marker defaults to 1-1 with a warning when no axis is configured', () => {
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -251,7 +274,7 @@ describe('universal import shapes', () => {
       'END:VEVENT',
       'END:VCALENDAR',
     ].join('\r\n');
-    const { courses } = parseIcsTimetable(ics, FIXTURE_ANCHOR);
+    const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR);
     expect(courses.length).toBe(1);
     expect(courses[0].name).toBe('高等数学');
     // Thursday (2026-09-10).
@@ -259,6 +282,43 @@ describe('universal import shapes', () => {
     expect(courses[0].startPeriod).toBe(1);
     expect(courses[0].endPeriod).toBe(1);
     expect(courses[0].weekList.length).toBe(18);
+    expect(warnings.some((w) => w.message.includes('未识别到节次，默认第 1 节'))).toBe(true);
+  });
+
+  it('Tier B: with the app period-times axis, DTSTART/DTEND infer the span', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'SUMMARY:高等数学',
+      'DTSTART:20260910T100000',
+      'DTEND:20260910T114500',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const schedule = {
+      periodTimes: { '1': '08:00', '2': '08:50', '3': '09:40', '4': '10:30', '5': '11:20', '6': '13:00' },
+      periodDurations: { '1': 45, '2': 45, '3': 45, '4': 45, '5': 45, '6': 45 },
+    };
+    const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR, schedule);
+    expect(courses[0].startPeriod).toBe(3);
+    expect(courses[0].endPeriod).toBe(5);
+    expect(warnings.some((w) => w.message.includes('已按上课时间推断为第 3-5 节'))).toBe(true);
+  });
+
+  it('Tier B: DTSTART before the first period falls back to 1-1 with a warning', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'SUMMARY:晨课',
+      'DTSTART:20260907T070000',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const schedule = { periodTimes: { '1': '08:00' } };
+    const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR, schedule);
+    expect(courses[0].startPeriod).toBe(1);
+    expect(courses[0].endPeriod).toBe(1);
+    expect(warnings.some((w) => w.message.includes('未识别到节次'))).toBe(true);
   });
 
   it('Tier C: period marker embedded in SUMMARY is used and stripped', () => {
@@ -295,8 +355,39 @@ describe('universal import shapes', () => {
     expect(courses[0].teacher.name).toBe('李老师');
   });
 
-  it('all-day events are skipped with a warning, not silently dropped', () => {
+  it('unknown TZID warns instead of silently shifting times', () => {
     const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'SUMMARY:课程X',
+      'DESCRIPTION:第1 - 2节\\n地点A\\n老师B',
+      'DTSTART;TZID=America/New_York:20260907T080000',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR);
+    expect(courses[0].startPeriod).toBe(1);
+    expect(warnings.some((w) => w.message.includes('未知时区 America/New_York'))).toBe(true);
+  });
+
+  it('declared period span inconsistent with event length warns', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'SUMMARY:课程X',
+      'DESCRIPTION:第1 - 2节\\n地点A\\n老师B',
+      'DTSTART:20260907T080000',
+      'DTEND:20260907T110000', // 180 min vs the 95 min a 2-period span implies
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR);
+    expect(courses[0].startPeriod).toBe(1);
+    expect(courses[0].endPeriod).toBe(2);
+    expect(warnings.some((w) => w.message.includes('与事件时长 180 分钟不符'))).toBe(true);
+  });
+
+  it('all-day events are skipped with a warning, not silently dropped', () => {    const ics = [
       'BEGIN:VCALENDAR',
       'BEGIN:VEVENT',
       'SUMMARY:开学典礼',
@@ -360,5 +451,78 @@ describe('universal import shapes', () => {
     const { courses, warnings } = parseIcsTimetable(ics, FIXTURE_ANCHOR);
     expect(courses.length).toBe(0);
     expect(warnings.some((w) => w.severity === 'error' && w.message.includes('超出支持范围'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Second real-file golden: the user's 大二 semester export (日历-大二.ics,
+// copied to fixtures/calendar-sophomore.ics). Same WakeUpSchedule exporter as
+// 课表.ics but with different shapes: 13 events, no 生涯教育与就业指导 merge
+// case, a single-meeting 形势与政策 in week 18, late-starting labs at 8-10节.
+// Guarded like the first golden so CI stays green when the file is absent.
+// ---------------------------------------------------------------------------
+
+const SOPHOMORE_ICS_PATH = nodePath.join(
+  // @ts-expect-error Node's __dirname is hidden by tsconfig types:["jest"]
+  __dirname,
+  'fixtures',
+  'calendar-sophomore.ics',
+);
+const hasSophomoreFixture = existsSync(SOPHOMORE_ICS_PATH);
+
+describe('real WakeUp export (日历-大二.ics → fixtures/calendar-sophomore.ics)', () => {
+  let text = '';
+  if (hasSophomoreFixture) text = readFileSync(SOPHOMORE_ICS_PATH, 'utf8');
+
+  it('fixture is present and non-empty (fails loudly when gone)', () => {
+    expect(hasSophomoreFixture).toBe(true);
+    expect(text.trim().length).toBeGreaterThan(100);
+  });
+
+  it('parses all 13 courses with zero warnings', () => {
+    const { courses, warnings } = parseIcsTimetable(text, FIXTURE_ANCHOR);
+    expect(courses.length).toBe(13);
+    expect(warnings.length).toBe(0);
+  });
+
+  it('infers the semester start 2026-09-07 from the earliest DTSTART', () => {
+    const { inferredSemesterStart } = parseIcsTimetable(text, undefined);
+    expect(inferredSemesterStart).toBe('2026-09-07');
+  });
+
+  it('late-starting 数字电路与逻辑设计实验 runs weeks 9-16 at periods 8-10', () => {
+    const { courses } = parseIcsTimetable(text, FIXTURE_ANCHOR);
+    const exp = courses.find((c) => c.name === '数字电路与逻辑设计实验');
+    expect(exp).toBeDefined();
+    expect(exp!.day).toBe(WeekDay.THURSDAY);
+    expect(exp!.startPeriod).toBe(8);
+    expect(exp!.endPeriod).toBe(10);
+    expect(exp!.weekList[0]).toBe(9);
+    expect(exp!.weekList[exp!.weekList.length - 1]).toBe(16);
+  });
+
+  it('形势与政策 is a single meeting in week 18 (instant UNTIL semantics)', () => {
+    const { courses } = parseIcsTimetable(text, FIXTURE_ANCHOR);
+    const c = courses.find((x) => x.name === '形势与政策');
+    expect(c).toBeDefined();
+    expect(c!.day).toBe(WeekDay.TUESDAY);
+    expect(c!.weekList).toEqual([18]);
+  });
+
+  it('6-teacher experiment chain is normalised to 、', () => {
+    const { courses } = parseIcsTimetable(text, FIXTURE_ANCHOR);
+    const physicsExp = courses.find((c) => c.name === '大学物理实验A（下）');
+    expect(physicsExp).toBeDefined();
+    expect(physicsExp!.teacher.name).toBe('王章银、王蓉蓉、尹晓峰、张子云、谢传梅、谌正艮');
+    expect(physicsExp!.location.address).toBe('磬苑校区笃行北楼A楼[物理基础实验中心]');
+  });
+
+  it('all 13 courses stay within the 13-period grid and 25-week cap', () => {
+    const { courses } = parseIcsTimetable(text, FIXTURE_ANCHOR);
+    for (const c of courses) {
+      expect(c.startPeriod).toBeGreaterThanOrEqual(1);
+      expect(c.endPeriod).toBeLessThanOrEqual(13);
+      expect(c.weekList[c.weekList.length - 1]).toBeLessThanOrEqual(25);
+    }
   });
 });

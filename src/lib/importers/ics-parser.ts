@@ -8,8 +8,10 @@
 //
 //   Tier A (WakeUp dialect): SUMMARY=course name, DESCRIPTION =
 //       "第X - Y节\nlocation\nteacher", LOCATION="location teacher".
-//   Tier B (generic calendar): SUMMARY only — time resolution falls to the
-//       app's period-times axis (user-configurable); periods default to 1-1.
+//   Tier B (generic calendar): SUMMARY only — periods are inferred from the
+//       DTSTART wall-clock against the app's user-configurable period-times
+//       axis (passed in as `periodSchedule`), validated against DTEND; when
+//       no axis is provided they degrade to 1-1 with an explicit warning.
 //   Tier C: "第X-Y节" embedded in SUMMARY, or a "第X - Y节" line inside
 //       DESCRIPTION (whitespace-tolerant — not WakeUp-locked).
 //
@@ -39,7 +41,7 @@ import {
   type ScheduledCourse,
   type TimeSlot,
 } from '@/types/timetable';
-import { MAX_WEEK, type CourseWarning } from '@/lib/importers/parsers';
+import { MAX_WEEK, MAX_PERIOD, type CourseWarning } from '@/lib/importers/parsers';
 import { fallbackSlot, toScheduledCourse } from '@/lib/engine/recognizer';
 
 // -----------------------------------------------------------------------------
@@ -64,6 +66,8 @@ interface IcsEvent {
   end: IcsDateTime | null;
   /** Raw RRULE payload, e.g. 'FREQ=WEEKLY;UNTIL=20270110T160000Z;INTERVAL=1'. */
   rrule: string | null;
+  /** TZID parameter of DTSTART, when present ('Asia/Shanghai', 'UTC', …). */
+  startTzid?: string;
 }
 
 interface IcsParseResult {
@@ -324,7 +328,10 @@ function collectEvents(lines: string[]): IcsEvent[] {
         break;
       case 'DTSTART': {
         const dt = parseIcsDateTime(prop.value);
-        if (dt) cur.start = dt;
+        if (dt) {
+          cur.start = dt;
+          cur.startTzid = prop.params['TZID'];
+        }
         break;
       }
       case 'DTEND': {
@@ -346,7 +353,7 @@ function collectEvents(lines: string[]): IcsEvent[] {
 // Period markers ("第X - Y节" / "第X-Y节" / "第X节")
 // -----------------------------------------------------------------------------
 
-const PERIOD_MARKER = /第\s*(\d{1,2})\s*(?:[-~～—–]\s*(\d{1,2})\s*)?节/;
+const PERIOD_MARKER = /第\s*(\d{1,2})\s*(?:[-~～—–－]\s*(\d{1,2})\s*)?节/;
 
 interface PeriodSpan {
   start: number;
@@ -365,6 +372,79 @@ export function extractPeriodMarker(text: string): PeriodSpan | null {
 /** Strip the period marker from a SUMMARY that embeds one. */
 function stripPeriodMarker(summary: string): string {
   return summary.replace(PERIOD_MARKER, '').trim();
+}
+
+// -----------------------------------------------------------------------------
+// Period-times axis (Tier B inference)
+// -----------------------------------------------------------------------------
+
+/**
+ * The app's user-configurable period schedule — the same shape as the
+ * preferences consumed by notifications / the desktop widget
+ * (periodTimes: '1' → '08:00'; periodDurations: '1' → 45).
+ */
+export interface IcsPeriodSchedule {
+  /** Period number → start time 'HH:MM'. */
+  periodTimes?: Record<string, string>;
+  /** Period number → lesson length in minutes (default 45). */
+  periodDurations?: Record<string, number>;
+}
+
+/** 'HH:MM' → minutes since midnight; null when malformed. */
+export function minutesOfHm(value: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/**
+ * Latest configured period whose start time ≤ startMinutes + tolerance.
+ * Returns null when the axis is empty or nothing fits — callers then fall
+ * back to period 1 with a warning.
+ */
+export function inferPeriodFromTime(
+  startMinutes: number,
+  periodTimes: Record<string, string>,
+  toleranceMinutes = 5,
+): number | null {
+  let bestPeriod: number | null = null;
+  let bestTime = -Infinity;
+  for (const [k, v] of Object.entries(periodTimes)) {
+    const p = Number(k);
+    const t = minutesOfHm(v);
+    if (!Number.isFinite(p) || t === null) continue;
+    if (t <= startMinutes + toleranceMinutes && t > bestTime) {
+      bestTime = t;
+      bestPeriod = p;
+    }
+  }
+  return bestPeriod;
+}
+
+/**
+ * End period for an event of `durationMinutes`, walking the configured axis
+ * from `startPeriod` (45-min lessons + 5-min breaks by default). Clamped to
+ * the 13-period grid the renderer supports.
+ */
+export function inferEndPeriod(
+  startPeriod: number,
+  durationMinutes: number,
+  schedule: IcsPeriodSchedule,
+): number {
+  let remaining = durationMinutes;
+  let p = startPeriod;
+  while (remaining > 0 && p < MAX_PERIOD) {
+    const dur = schedule.periodDurations?.[String(p)] ?? 45;
+    remaining -= dur;
+    if (remaining > 0) {
+      remaining -= 5; // break before the next period
+      p += 1;
+    }
+  }
+  return Math.max(startPeriod, p);
 }
 
 // -----------------------------------------------------------------------------
@@ -451,10 +531,13 @@ const MAX_ICS_EVENTS = 500;
  * Parse .ics text into ScheduledCourses. `semesterStartDate` is the user-set
  * 'YYYY-MM-DD' of week-1 Monday; without it weeks degrade to 1..18 with an
  * explicit warning (the UI tells users to set it before importing).
+ * `periodSchedule` is the app's user-configurable period-times axis, used to
+ * infer periods for events that carry no "第X-Y节" marker (Tier B).
  */
 export function parseIcsTimetable(
   text: string,
   semesterStartDate: string | undefined,
+  periodSchedule?: IcsPeriodSchedule,
 ): IcsParseResult {
   const warnings: CourseWarning[] = [];
   const events = collectEvents(unfoldIcsLines(text));
@@ -543,10 +626,67 @@ export function parseIcsTimetable(
     const wall = chinaWallView(startInstantMs);
     const day = WEEKDAY_BY_INDEX[wall.weekday] ?? WeekDay.MONDAY;
 
+    // TZID handling: Asia/Shanghai and floating values are China wall clock;
+    // 'Z' (UTC) values are exact instants (already handled in icsToInstantMs).
+    // Unknown TZIDs are read as China wall clock — warn so the user can check.
+    if (event.startTzid && !/^(?:ASIA\/SHANGHAI|UTC)$/i.test(event.startTzid)) {
+      warnings.push({
+        category: 'period',
+        severity: 'info',
+        message: `「${name}」使用了未知时区 ${event.startTzid}，已按北京时间处理，请核对上课时间`,
+        raw: event.summary,
+      });
+    }
+
     // Periods: Tier A DESCRIPTION marker → Tier C SUMMARY-embedded marker.
+    // Marker-less events (Tier B) fall back to the app's period-times axis:
+    // DTSTART wall-clock → nearest configured period start, DTEND → span.
     const span = extractPeriodMarker(event.description) ?? extractPeriodMarker(event.summary);
-    const startPeriod = span ? span.start : 1;
-    const endPeriod = span ? span.end : 1;
+    let startPeriod = span ? span.start : 1;
+    let endPeriod = span ? span.end : 1;
+    if (!span) {
+      const startMinutes = (event.start.hour ?? 0) * 60 + (event.start.minute ?? 0);
+      const inferred = periodSchedule
+        ? inferPeriodFromTime(startMinutes, periodSchedule.periodTimes ?? {})
+        : null;
+      if (inferred !== null) {
+        startPeriod = inferred;
+        if (event.end?.hour != null) {
+          const durationMinutes = Math.round(
+            (icsToInstantMs(event.end) - icsToInstantMs(event.start)) / 60000,
+          );
+          endPeriod = inferEndPeriod(inferred, durationMinutes, periodSchedule ?? {});
+        }
+        warnings.push({
+          category: 'period',
+          severity: 'info',
+          message: `「${name}」未含节次标记，已按上课时间推断为第 ${startPeriod}-${endPeriod} 节，请核对`,
+          raw: event.summary,
+        });
+      } else {
+        warnings.push({
+          category: 'period',
+          severity: 'warning',
+          message: `「${name}」未识别到节次，默认第 1 节；可在导入预览中修改`,
+          raw: event.summary,
+        });
+      }
+    } else if (event.end?.hour != null) {
+      // Cross-check: declared span vs actual event length (45 min + 5-min
+      // break per period). Catches exporters that mislabel the span.
+      const actualMinutes = Math.round(
+        (icsToInstantMs(event.end) - icsToInstantMs(event.start)) / 60000,
+      );
+      const declaredMinutes = 50 * (endPeriod - startPeriod) + 45;
+      if (Math.abs(actualMinutes - declaredMinutes) > 15) {
+        warnings.push({
+          category: 'period',
+          severity: 'info',
+          message: `「${name}」声明第 ${startPeriod}-${endPeriod} 节，与事件时长 ${actualMinutes} 分钟不符，请核对`,
+          raw: event.summary,
+        });
+      }
+    }
 
     // Location/teacher: Tier A LOCATION split; DESCRIPTION line fallback.
     let address = '';
