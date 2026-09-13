@@ -793,7 +793,7 @@ export default function TimetableScreen() {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <ThemedText themeColor="textSecondary" style={styles.summaryText}>
-              {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '还没有导入课程'}
+              {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '点击空白格手动添加课程'}
             </ThemedText>
           </View>
           <View style={styles.weekControls}>
@@ -811,13 +811,7 @@ export default function TimetableScreen() {
           </View>
         </View>
 
-        {!courses.length ? (
-          <ThemedView type="backgroundElement" style={styles.empty}>
-                      <ThemedText type="subtitle">从真实课表开始</ThemedText>
-                      <ThemedText themeColor="textSecondary">打开“导入课表”，选择 .docx 文件。</ThemedText>
-                    </ThemedView>
-        ) : (
-          <GestureDetector gesture={timetablePan.gesture}>
+        <GestureDetector gesture={timetablePan.gesture}>
             {/* Clip + measure container: the pan surface. overflow
                 hidden keeps the neighbor panel invisible until it is
                 pulled into view; onLayout feeds the pan's bounds. */}
@@ -902,7 +896,6 @@ export default function TimetableScreen() {
             </Animated.View>
             </View>
           </GestureDetector>
-        )}
                 {lastReport && lastReport.warnings.length > 0 && (
                           <ReportBanner
                             report={lastReport}
