@@ -25,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
   const { mode, setMode } = useAppTheme();
-  const { clearCourses, courses, importedFileName, semesterStartDate } = useTimetable();
+  const { clearCourses, courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods, setSemesterWeeks, setMaxPeriods } = useTimetable();
   const {
     bgImageUri, bgOpacity, splashImageUri,
     pickBgImage, resetBgImage, setBgOpacity,
@@ -185,6 +185,39 @@ export default function SettingsScreen() {
           </ThemedView>
 
           <ThemedView type="backgroundElement" style={styles.section}>
+            <ThemedText type="subtitle">学期设置</ThemedText>
+
+            <View style={styles.counterRow}>
+              <ThemedText>本学期总周数</ThemedText>
+              <View style={styles.counter}>
+                <Pressable onPress={() => setSemesterWeeks(semesterWeeks - 1)} style={styles.counterBtn} accessibilityLabel="减少周数">
+                  <ThemedText style={styles.counterBtnText}>−</ThemedText>
+                </Pressable>
+                <ThemedText style={styles.counterValue}>{semesterWeeks}</ThemedText>
+                <Pressable onPress={() => setSemesterWeeks(semesterWeeks + 1)} style={styles.counterBtn} accessibilityLabel="增加周数">
+                  <ThemedText style={styles.counterBtnText}>＋</ThemedText>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.counterRow}>
+              <ThemedText>一天最大节数</ThemedText>
+              <View style={styles.counter}>
+                <Pressable onPress={() => setMaxPeriods(maxPeriods - 1)} style={styles.counterBtn} accessibilityLabel="减少节数">
+                  <ThemedText style={styles.counterBtnText}>−</ThemedText>
+                </Pressable>
+                <ThemedText style={styles.counterValue}>{maxPeriods}</ThemedText>
+                <Pressable onPress={() => setMaxPeriods(maxPeriods + 1)} style={styles.counterBtn} accessibilityLabel="增加节数">
+                  <ThemedText style={styles.counterBtnText}>＋</ThemedText>
+                </Pressable>
+              </View>
+            </View>
+            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+              手动添加课程前可先在这里设置好周数和节数范围。
+            </ThemedText>
+          </ThemedView>
+
+          <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">提醒</ThemedText>
 
             <View style={styles.optionRow}>
@@ -293,6 +326,11 @@ const styles = StyleSheet.create({
   leadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.two, gap: Spacing.two },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  counterRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
+  counter: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  counterBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: '#4A90D9', alignItems: 'center', justifyContent: 'center' },
+  counterBtnText: { color: '#4A90D9', fontSize: 18, fontWeight: '700', lineHeight: 20 },
+  counterValue: { minWidth: 28, textAlign: 'center', fontWeight: '600' },
   linkBtn: { paddingVertical: 2, paddingHorizontal: Spacing.two },
   linkText: { color: '#4A90D9', fontWeight: '600' },
   customButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.one + 2, borderRadius: 999, borderWidth: 1, borderColor: '#4A90D9' },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScheduledCourse,
   TimetableData,
@@ -17,13 +17,13 @@ import { writeWidgetData, getCurrentWeek, type WidgetCourseData } from '@/lib/wi
  * of state, exposes the business actions, and assembles a stable
  * `TimetableSnapshot` for the persistence hook to write.
  *
- * No storage I/O, no migration, no AppState wiring — those live in
+ * No storage I/O, no migration, no AppState wiring 鈥?those live in
  * sibling modules. This makes the store trivially testable with a fake
  * `react-test-renderer` harness, and means storage changes never have
  * to touch React state code.
  */
 interface TimetableStore {
-  /** Snapshot — recomputed only when one of the six fields changes. */
+  /** Snapshot 鈥?recomputed only when one of the six fields changes. */
   snapshot: TimetableSnapshot;
   /** False until hydration finishes; UI gates the first paint on this. */
   isHydrated: boolean;
@@ -50,6 +50,12 @@ interface TimetableStore {
   deleteCourses: (ids: string[]) => void;
   clearCourses: () => void;
   setSemesterStartDate: (date: string) => void;
+  /** 鎵嬪姩閿佸畾鏈鏈熸€诲懆鏁帮紙璁剧疆椤碉級銆?*/
+  setSemesterWeeks: (n: number) => void;
+  /** 鎵嬪姩閿佸畾涓€澶╂渶澶ц妭鏁帮紙璁剧疆椤碉級銆?*/
+  setMaxPeriods: (n: number) => void;
+  /** Hydrate 鏃舵妸鎸佷箙鍖栫殑鍛ㄦ暟/鑺傛暟浣滀负閿佸畾鍊兼仮澶嶃€?*/
+  restoreManualBounds: (weeks: number, periods: number) => void;
   dismissReport: () => void;
 }
 
@@ -57,8 +63,16 @@ export function useTimetableStore(): TimetableStore {
   const [courses, setCourses] = useState<ScheduledCourse[]>([]);
   const [importedFileName, setImportedFileName] = useState<string | undefined>(undefined);
   const [semesterStartDate, setSemesterStartDate] = useState<string | undefined>(undefined);
-  const [semesterWeeks, setSemesterWeeks] = useState(DEFAULT_SEMESTER_WEEKS);
-  const [maxPeriods, setMaxPeriods] = useState(DEFAULT_MAX_PERIODS);
+  // Auto-derived bounds from the course list.
+  const [autoWeeks, setAutoWeeks] = useState(DEFAULT_SEMESTER_WEEKS);
+  const [autoPeriods, setAutoPeriods] = useState(DEFAULT_MAX_PERIODS);
+  // User manual overrides (settings page). When set they win over the
+  // auto-derived value so a hand-built timetable isn't clipped to the
+  // defaults before any course is added.
+  const [weeksOverride, setWeeksOverride] = useState<number | null>(null);
+  const [periodOverride, setPeriodOverride] = useState<number | null>(null);
+  const semesterWeeks = weeksOverride ?? autoWeeks;
+  const maxPeriods = periodOverride ?? autoPeriods;
   const [lastReport, setLastReport] = useState<ImportReport | undefined>(undefined);
   const [isHydrated, setHydrated] = useState(false);
 
@@ -72,11 +86,14 @@ export function useTimetableStore(): TimetableStore {
       setCourses(clean);
       setImportedFileName(name);
       // `startDate !== undefined` lets callers pass an empty string to
-      // clear it without ambiguity — mirrors the legacy provider's
+      // clear it without ambiguity 鈥?mirrors the legacy provider's
       // contract that `import.tsx` already relies on.
       if (startDate !== undefined) setSemesterStartDate(startDate);
-      setSemesterWeeks(computeSemesterWeeks(clean));
-      setMaxPeriods(computeMaxPeriods(clean));
+      setAutoWeeks(computeSemesterWeeks(clean));
+      setAutoPeriods(computeMaxPeriods(clean));
+      // 新导入的数据自带周数/节数，回到“跟随课程”。
+      setWeeksOverride(null);
+      setPeriodOverride(null);
       setLastReport(report);
       
     },
@@ -87,8 +104,8 @@ export function useTimetableStore(): TimetableStore {
     setCourses(current => {
       const next = current.map(c => (c.id === id ? { ...c, ...patch, id: c.id } : c));
       const clean = sanitizeCourses(next);
-      setSemesterWeeks(computeSemesterWeeks(clean));
-      setMaxPeriods(computeMaxPeriods(clean));
+      setAutoWeeks(computeSemesterWeeks(clean));
+      setAutoPeriods(computeMaxPeriods(clean));
       
       return clean;
     });
@@ -102,8 +119,8 @@ export function useTimetableStore(): TimetableStore {
     setCourses(current => {
       const next = [...current, { ...course, id } as ScheduledCourse];
       const clean = sanitizeCourses(next);
-      setSemesterWeeks(computeSemesterWeeks(clean));
-      setMaxPeriods(computeMaxPeriods(clean));
+      setAutoWeeks(computeSemesterWeeks(clean));
+      setAutoPeriods(computeMaxPeriods(clean));
       
       return clean;
     });
@@ -114,8 +131,8 @@ export function useTimetableStore(): TimetableStore {
     setCourses(current => {
       const next = current.filter(c => !drop.has(c.id));
       const clean = sanitizeCourses(next);
-      setSemesterWeeks(computeSemesterWeeks(clean));
-      setMaxPeriods(computeMaxPeriods(clean));
+      setAutoWeeks(computeSemesterWeeks(clean));
+      setAutoPeriods(computeMaxPeriods(clean));
       
       return clean;
     });
@@ -125,9 +142,26 @@ export function useTimetableStore(): TimetableStore {
     setCourses([]);
     setImportedFileName(undefined);
     setSemesterStartDate(undefined);
-    setSemesterWeeks(DEFAULT_SEMESTER_WEEKS);
-    setMaxPeriods(DEFAULT_MAX_PERIODS);
+    setAutoWeeks(DEFAULT_SEMESTER_WEEKS);
+    setAutoPeriods(DEFAULT_MAX_PERIODS);
+    setWeeksOverride(null);
+    setPeriodOverride(null);
     setLastReport(undefined);
+  }, []);
+
+  const setSemesterWeeks = useCallback((n: number) => {
+    const clamped = Math.min(30, Math.max(1, Math.round(n)));
+    setWeeksOverride(clamped);
+  }, []);
+
+  const setMaxPeriods = useCallback((n: number) => {
+    const clamped = Math.min(20, Math.max(1, Math.round(n)));
+    setPeriodOverride(clamped);
+  }, []);
+
+  const restoreManualBounds = useCallback((weeks: number, periods: number) => {
+    setWeeksOverride(Math.max(1, Math.round(weeks)));
+    setPeriodOverride(Math.max(1, Math.round(periods)));
   }, []);
 
   const dismissReport = useCallback(() => setLastReport(undefined), []);
@@ -154,7 +188,7 @@ export function useTimetableStore(): TimetableStore {
   // Sync widget data on any timetable change (after hydration). Moved out of
   // the setState updaters: updaters must stay pure (React StrictMode
   // double-invokes them in dev), and this effect is the single source of
-  // truth for 课表变化 -> 同步桌面小组件.
+  // truth for 璇捐〃鍙樺寲 -> 鍚屾妗岄潰灏忕粍浠?
   useEffect(() => {
     if (!isHydrated) return;
     // Explicit projection: ScheduledCourse carries fields the native widget
@@ -186,6 +220,9 @@ export function useTimetableStore(): TimetableStore {
     deleteCourses,
     clearCourses,
     setSemesterStartDate,
+    setSemesterWeeks,
+    setMaxPeriods,
+    restoreManualBounds,
     dismissReport,
   };
 }

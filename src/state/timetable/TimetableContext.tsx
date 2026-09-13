@@ -36,6 +36,8 @@ interface ContextValue {
   deleteCourses: (ids: string[]) => void;
   clearCourses: () => void;
   setSemesterStartDate: (date: string) => void;
+  setSemesterWeeks: (n: number) => void;
+  setMaxPeriods: (n: number) => void;
   dismissReport: () => void;
 }
 
@@ -85,6 +87,8 @@ export function TimetableProvider({ children }: PropsWithChildren) {
         snapshot.semesterStartDate,
         snapshot.lastReport,
       );
+      // 恢复上次保存的周数/节数为手动锁定值。
+      store.restoreManualBounds(snapshot.semesterWeeks, snapshot.maxPeriods);
       store.setHydrated(true);
     });
     return () => {
@@ -179,6 +183,8 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       deleteCourses: store.deleteCourses,
       clearCourses: store.clearCourses,
       setSemesterStartDate: store.setSemesterStartDate,
+      setSemesterWeeks: store.setSemesterWeeks,
+      setMaxPeriods: store.setMaxPeriods,
       dismissReport: store.dismissReport,
     }),
     [
@@ -196,6 +202,8 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       store.deleteCourses,
       store.clearCourses,
       store.setSemesterStartDate,
+      store.setSemesterWeeks,
+      store.setMaxPeriods,
       store.dismissReport,
     ],
   );
