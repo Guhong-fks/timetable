@@ -262,7 +262,7 @@ export default function ImportScreen() {
           <ThemedView type="backgroundElement" style={styles.section}>
             <ThemedText type="subtitle">学期开始日期</ThemedText>
             <ThemedText themeColor="textSecondary" style={styles.hint}>
-              输入课程第一周周一的日期，用于显示上课日期。
+              填写课程第一周周一的日期，用于在课表上显示具体上课日期；不填则只按周次显示。
             </ThemedText>
             <View style={styles.dateRow}>
               <View style={styles.dateField}>
@@ -270,7 +270,7 @@ export default function ImportScreen() {
                   value={dateYear}
                   onChangeText={handleYearChange}
                   inputMode="numeric"
-                  placeholder="2026"
+                  placeholder="年"
                   placeholderTextColor={theme.textSecondary}
                   maxLength={4}
                   accessibilityLabel="学期开始年份"
@@ -283,7 +283,7 @@ export default function ImportScreen() {
                   value={dateMonth}
                   onChangeText={handleMonthChange}
                   inputMode="numeric"
-                  placeholder="9"
+                  placeholder="月"
                   placeholderTextColor={theme.textSecondary}
                   maxLength={2}
                   accessibilityLabel="学期开始月份"
@@ -296,7 +296,7 @@ export default function ImportScreen() {
                   value={dateDay}
                   onChangeText={handleDayChange}
                   inputMode="numeric"
-                  placeholder="7"
+                  placeholder="日"
                   placeholderTextColor={theme.textSecondary}
                   maxLength={2}
                   accessibilityLabel="学期开始日"

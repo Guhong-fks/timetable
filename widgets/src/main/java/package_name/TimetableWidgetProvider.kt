@@ -1,4 +1,4 @@
-package com.fksguh.coursetableapp.widget
+﻿package com.fksguh.coursetableapp.widget
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -17,60 +17,51 @@ import java.util.Calendar
 import kotlin.math.roundToInt
 
 /**
- * 课表桌面小组件 Provider。
- *
- * 数据源：App（JS 侧）通过 @bittingz/expo-widgets 的 setWidgetData() 写入
- * SharedPreferences（名称 = <applicationId>.widgetdata，key = widgetdata），
- * payload 结构：
- *   {
+ * 璇捐〃妗岄潰灏忕粍浠?Provider銆? *
+ * 鏁版嵁婧愶細App锛圝S 渚э級閫氳繃 @bittingz/expo-widgets 鐨?setWidgetData() 鍐欏叆
+ * SharedPreferences锛堝悕绉?= <applicationId>.widgetdata锛宬ey = widgetdata锛夛紝
+ * payload 缁撴瀯锛? *   {
  *     "currentWeek": int,
  *     "semesterStartDate": "yyyy-MM-dd"|"",
  *     "courses": [WidgetCourseData...],
- *     "periodTimes": {"1":"08:00",...},       // 节次开始时间（用户可在 App 配置）
- *     "periodDurations": {"1":45,...}         // 节次时长（分钟）
+ *     "periodTimes": {"1":"08:00",...},       // 鑺傛寮€濮嬫椂闂达紙鐢ㄦ埛鍙湪 App 閰嶇疆锛? *     "periodDurations": {"1":45,...}         // 鑺傛鏃堕暱锛堝垎閽燂級
  *   }
  *
- * 每次 onUpdate（系统定时 updatePeriodMillis / App 写入数据后库自动广播 /
- * 下课时刻 AlarmManager 自动刷新）时：
- *   1. 有 semesterStartDate 则重算当前周（避免 App 长期未打开导致周次过期）；
- *   2. 按“当前周 + 当天星期”过滤课程；
- *   3. “下课过滤”：结束时间已过的课程不再显示（进行中/未开始保留）；
- *   4. 读取小组件实际尺寸做响应式渲染（竖排/横排、1~3 门课、周次/日期头部）；
- *   5. 用 AlarmManager 在下一个下课时刻安排自动刷新，实现“下课即消失”；
- *   6. 点击跳回 App（coursetableapp://widget）。
- *
- * 说明：不再使用自定义闹钟做周期刷新，统一依赖 widget_timetable_info.xml 的
- * updatePeriodMillis 系统级兜底 + App 写入时即时刷新 + 下课时刻精确刷新。
- */
+ * 姣忔 onUpdate锛堢郴缁熷畾鏃?updatePeriodMillis / App 鍐欏叆鏁版嵁鍚庡簱鑷姩骞挎挱 /
+ * 涓嬭鏃跺埢 AlarmManager 鑷姩鍒锋柊锛夋椂锛? *   1. 鏈?semesterStartDate 鍒欓噸绠楀綋鍓嶅懆锛堥伩鍏?App 闀挎湡鏈墦寮€瀵艰嚧鍛ㄦ杩囨湡锛夛紱
+ *   2. 鎸夆€滃綋鍓嶅懆 + 褰撳ぉ鏄熸湡鈥濊繃婊よ绋嬶紱
+ *   3. 鈥滀笅璇捐繃婊も€濓細缁撴潫鏃堕棿宸茶繃鐨勮绋嬩笉鍐嶆樉绀猴紙杩涜涓?鏈紑濮嬩繚鐣欙級锛? *   4. 璇诲彇灏忕粍浠跺疄闄呭昂瀵稿仛鍝嶅簲寮忔覆鏌擄紙绔栨帓/妯帓銆?~3 闂ㄨ銆佸懆娆?鏃ユ湡澶撮儴锛夛紱
+ *   5. 鐢?AlarmManager 鍦ㄤ笅涓€涓笅璇炬椂鍒诲畨鎺掕嚜鍔ㄥ埛鏂帮紝瀹炵幇鈥滀笅璇惧嵆娑堝け鈥濓紱
+ *   6. 鐐瑰嚮璺冲洖 App锛坈oursetableapp://widget锛夈€? *
+ * 璇存槑锛氫笉鍐嶄娇鐢ㄨ嚜瀹氫箟闂归挓鍋氬懆鏈熷埛鏂帮紝缁熶竴渚濊禆 widget_timetable_info.xml 鐨? * updatePeriodMillis 绯荤粺绾у厹搴?+ App 鍐欏叆鏃跺嵆鏃跺埛鏂?+ 涓嬭鏃跺埢绮剧‘鍒锋柊銆? */
 class TimetableWidgetProvider : AppWidgetProvider() {
 
     companion object {
-        /** 库 setWidgetData 写入的 SharedPreferences 名 = packageName + ".widgetdata" */
+        /** 搴?setWidgetData 鍐欏叆鐨?SharedPreferences 鍚?= packageName + ".widgetdata" */
         private fun prefsName(packageName: String) = "$packageName.widgetdata"
         private const val KEY_DATA = "widgetdata"
         private const val SCHEME = "coursetableapp"
 
-        /** 下课自动刷新广播 action */
+        /** 涓嬭鑷姩鍒锋柊骞挎挱 action */
         private const val ACTION_REFRESH = "com.fksguh.coursetableapp.action.WIDGET_REFRESH"
 
-        /** 默认节次时间规则（与 App 侧 createDefaultPeriodTimes 一致）：第 N 节 = 08:00 + (N-1)*50min，每节 45 分钟 */
+        /** 榛樿鑺傛鏃堕棿瑙勫垯锛堜笌 App 渚?createDefaultPeriodTimes 涓€鑷达級锛氱 N 鑺?= 08:00 + (N-1)*50min锛屾瘡鑺?45 鍒嗛挓 */
         private const val FIRST_PERIOD_MINUTES = 8 * 60
         private const val PERIOD_STEP_MINUTES = 50
         private const val DEFAULT_PERIOD_MINUTES = 45
 
         /**
-         * 桌面网格单元高度（dp/格）。由实测推算：3×2 小组件 options 高度 ≈ 183dp
-         * （2 格）→ 约 91.5dp/格。课程显示上限按“高度格子数”决定：
-         * 2 格至多 2 节、3 格至多 3 节（横排同样受此限制）。
-         */
-        private const val CELL_HEIGHT_DP = 91.5f
+         * 妗岄潰缃戞牸鍗曞厓楂樺害锛坉p/鏍硷級銆傜敱瀹炴祴鎺ㄧ畻锛?脳2 灏忕粍浠?options 楂樺害 鈮?183dp
+         * 锛? 鏍硷級鈫?绾?91.5dp/鏍笺€傝绋嬫樉绀轰笂闄愭寜鈥滈珮搴︽牸瀛愭暟鈥濆喅瀹氾細
+         * 2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傦紙妯帓鍚屾牱鍙楁闄愬埗锛夈€?         */
+        private const val CELL_HEIGHT_DP = 75f
 
         private val DAY_KEYS = arrayOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
         )
-        private val WEEKDAY_CN = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+        private val WEEKDAY_CN = arrayOf("鍛ㄦ棩", "鍛ㄤ竴", "鍛ㄤ簩", "鍛ㄤ笁", "鍛ㄥ洓", "鍛ㄤ簲", "鍛ㄥ叚")
 
-        /** 竖排卡片视图组（容器 / 左侧色条 / 课程名 / 补充信息），最多 6 门课 */
+        /** 绔栨帓鍗＄墖瑙嗗浘缁勶紙瀹瑰櫒 / 宸︿晶鑹叉潯 / 璇剧▼鍚?/ 琛ュ厖淇℃伅锛夛紝鏈€澶?6 闂ㄨ */
         private val V_CONTAINERS = intArrayOf(
             R.id.course1_container, R.id.course2_container, R.id.course3_container,
             R.id.course4_container, R.id.course5_container, R.id.course6_container
@@ -88,7 +79,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             R.id.course4_meta, R.id.course5_meta, R.id.course6_meta
         )
 
-        /** 横排卡片视图组（宽屏模式），最多 6 列 */
+        /** 妯帓鍗＄墖瑙嗗浘缁勶紙瀹藉睆妯″紡锛夛紝鏈€澶?6 鍒?*/
         private val H_CONTAINERS = intArrayOf(
             R.id.hcourse1_container, R.id.hcourse2_container, R.id.hcourse3_container,
             R.id.hcourse4_container, R.id.hcourse5_container, R.id.hcourse6_container
@@ -103,10 +94,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         )
 
         /**
-         * 课卡色板：与 App 课程表（src/app/(tabs)/index.tsx COURSE_PALETTE）完全一致，
-         * 按课程名 hash 取色，保证同一门课在小组件和 App 里颜色相同。
-         * color 为实色（用于左侧色条），bgRes 为该色 14% 透明度的圆角卡背景。
-         */
+         * 璇惧崱鑹叉澘锛氫笌 App 璇剧▼琛紙src/app/(tabs)/index.tsx COURSE_PALETTE锛夊畬鍏ㄤ竴鑷达紝
+         * 鎸夎绋嬪悕 hash 鍙栬壊锛屼繚璇佸悓涓€闂ㄨ鍦ㄥ皬缁勪欢鍜?App 閲岄鑹茬浉鍚屻€?         * color 涓哄疄鑹诧紙鐢ㄤ簬宸︿晶鑹叉潯锛夛紝bgRes 涓鸿鑹?14% 閫忔槑搴︾殑鍦嗚鍗¤儗鏅€?         */
         private val COURSE_PALETTE = arrayOf(
             Palette(0xFF4A90D9.toInt(), R.drawable.widget_course_blue),   // blue
             Palette(0xFF5BAE6E.toInt(), R.drawable.widget_course_green),  // green
@@ -118,7 +107,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             Palette(0xFF6C7BD9.toInt(), R.drawable.widget_course_indigo), // indigo
         )
 
-        /** 与 App 完全一致的课程名 hash 取色（hash*31+charCode 无符号 32 位取模 8） */
+        /** 涓?App 瀹屽叏涓€鑷寸殑璇剧▼鍚?hash 鍙栬壊锛坔ash*31+charCode 鏃犵鍙?32 浣嶅彇妯?8锛?*/
         private fun courseHueIndex(name: String): Int {
             var hash = 0
             for (ch in name) {
@@ -130,9 +119,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
     private data class WidgetData(
         val week: Int,
-        /** 显示用课程（已过滤“已下课”） */
+        /** 鏄剧ず鐢ㄨ绋嬶紙宸茶繃婊も€滃凡涓嬭鈥濓級 */
         val courses: List<Map<String, String>>,
-        /** 今天全部课程（用于计算下课刷新时刻） */
+        /** 浠婂ぉ鍏ㄩ儴璇剧▼锛堢敤浜庤绠椾笅璇惧埛鏂版椂鍒伙級 */
         val allToday: List<Map<String, String>>,
         val periodTimes: Map<Int, String>,
         val periodDurations: Map<Int, Int>,
@@ -141,8 +130,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
-            // 下课时刻自动刷新：直接重渲染该 widget，避免走 super 的默认分发
-            val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
+            // 涓嬭鏃跺埢鑷姩鍒锋柊锛氱洿鎺ラ噸娓叉煋璇?widget锛岄伩鍏嶈蛋 super 鐨勯粯璁ゅ垎鍙?            val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
             if (appWidgetId >= 0) {
                 updateWidget(context, AppWidgetManager.getInstance(context), appWidgetId)
             }
@@ -158,12 +146,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     }
 
     /**
-     * 尺寸变化回调：用户拖动 resize 小组件时，Launcher 调用
-     * AppWidgetManager.updateAppWidgetOptions 并触发本回调。
-     * 注意：AppWidgetProvider 的默认实现是空的，不会自动重新渲染，
-     * 必须在这里用最新 options（getAppWidgetOptions 已更新）重画，
-     * 否则桌面会继续拉伸旧布局（表现为"课程高度被拉高、课程数不变"）。
-     */
+     * 灏哄鍙樺寲鍥炶皟锛氱敤鎴锋嫋鍔?resize 灏忕粍浠舵椂锛孡auncher 璋冪敤
+     * AppWidgetManager.updateAppWidgetOptions 骞惰Е鍙戞湰鍥炶皟銆?     * 娉ㄦ剰锛欰ppWidgetProvider 鐨勯粯璁ゅ疄鐜版槸绌虹殑锛屼笉浼氳嚜鍔ㄩ噸鏂版覆鏌擄紝
+     * 蹇呴』鍦ㄨ繖閲岀敤鏈€鏂?options锛坓etAppWidgetOptions 宸叉洿鏂帮級閲嶇敾锛?     * 鍚﹀垯妗岄潰浼氱户缁媺浼告棫甯冨眬锛堣〃鐜颁负"璇剧▼楂樺害琚媺楂樸€佽绋嬫暟涓嶅彉"锛夈€?     */
     override fun onAppWidgetOptionsChanged(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -185,25 +170,19 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             parseData(raw)
         }
 
-        // 读取小组件当前尺寸（dp），做响应式布局
-        // 注意：桌面可能尚未上报尺寸（options 为空 Bundle），此时不能按 130dp 的
-        // 紧凑默认渲染成“1 门课”，否则刚添加的小组件会显得像旧版；默认按 260dp
-        // 竖排 3 门课处理（周六 2 门课即两行铺满）。
-        val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
+        // 璇诲彇灏忕粍浠跺綋鍓嶅昂瀵革紙dp锛夛紝鍋氬搷搴斿紡甯冨眬
+        // 娉ㄦ剰锛氭闈㈠彲鑳藉皻鏈笂鎶ュ昂瀵革紙options 涓虹┖ Bundle锛夛紝姝ゆ椂涓嶈兘鎸?130dp 鐨?        // 绱у噾榛樿娓叉煋鎴愨€? 闂ㄨ鈥濓紝鍚﹀垯鍒氭坊鍔犵殑灏忕粍浠朵細鏄惧緱鍍忔棫鐗堬紱榛樿鎸?260dp
+        // 绔栨帓 3 闂ㄨ澶勭悊锛堝懆鍏?2 闂ㄨ鍗充袱琛岄摵婊★級銆?        val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
         val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 260)
         val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 260)
-        // 宽而矮（超宽横条，如 5×2）时切换横排；普通竖条（如 3×2、3×3、2×2）
-        // 一律竖排，两门课即两行铺满——收紧触发条件，避免 3×2 被误判成横排，
-        // 让课卡变成两列窄条而破坏“两行铺满”效果。
-        val wide = width >= height * 2.5f && height < 200
-        // 高度格子数 = 显示课程数上限：2 格至多 2 节、3 格至多 3 节、4~6 格对应 4~6 节，
-        // 封顶 6 节（竖排与横排一致）
+        // 瀹借€岀煯锛堣秴瀹芥í鏉★紝濡?5脳2锛夋椂鍒囨崲妯帓锛涙櫘閫氱珫鏉★紙濡?3脳2銆?脳3銆?脳2锛?        // 涓€寰嬬珫鎺掞紝涓ら棬璇惧嵆涓よ閾烘弧鈥斺€旀敹绱цЕ鍙戞潯浠讹紝閬垮厤 3脳2 琚鍒ゆ垚妯帓锛?        // 璁╄鍗″彉鎴愪袱鍒楃獎鏉¤€岀牬鍧忊€滀袱琛岄摵婊♀€濇晥鏋溿€?        val wide = width >= height * 2.5f && height < 200
+        // 楂樺害鏍煎瓙鏁?= 鏄剧ず璇剧▼鏁颁笂闄愶細2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傘€?~6 鏍煎搴?4~6 鑺傦紝
+        // 灏侀《 6 鑺傦紙绔栨帓涓庢í鎺掍竴鑷达級
         val heightCells = (height / CELL_HEIGHT_DP).roundToInt().coerceIn(1, 6)
         val courses = widgetData.courses
 
-        // 单科（且非横排）时切换固定高度布局：卡片 56dp 固定、下方留白，
-        // 避免 weight 撑满整高导致卡片过肥。该布局只有头部 + 单卡 id。
-        val useSingleLayout = courses.size == 1 && !wide
+        // 鍗曠锛堜笖闈炴í鎺掞級鏃跺垏鎹㈠浐瀹氶珮搴﹀竷灞€锛氬崱鐗?56dp 鍥哄畾銆佷笅鏂圭暀鐧斤紝
+        // 閬垮厤 weight 鎾戞弧鏁撮珮瀵艰嚧鍗＄墖杩囪偉銆傝甯冨眬鍙湁澶撮儴 + 鍗曞崱 id銆?        val useSingleLayout = courses.size == 1 && !wide
         val views = RemoteViews(
             context.packageName,
             if (useSingleLayout) R.layout.widget_timetable_single else R.layout.widget_timetable
@@ -214,8 +193,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             "id=$appWidgetId w=${width} h=${height} cells=$heightCells wide=$wide courses=${courses.size} week=${widgetData.week} single=$useSingleLayout"
         )
 
-        // 头部：周次徽标 + 日期；过矮时隐藏日期行（标题上移、留更多空间给课程）
-        views.setTextViewText(R.id.header_week_badge, "第${widgetData.week}周")
+        // 澶撮儴锛氬懆娆″窘鏍?+ 鏃ユ湡锛涜繃鐭椂闅愯棌鏃ユ湡琛岋紙鏍囬涓婄Щ銆佺暀鏇村绌洪棿缁欒绋嬶級
+        views.setTextViewText(R.id.header_week_badge, "绗?{widgetData.week}鍛?)
         views.setTextViewText(R.id.header_date, buildDateText())
         if (height < 140) {
             views.setViewVisibility(R.id.header_date, View.GONE)
@@ -229,7 +208,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.empty_container, View.VISIBLE)
             }
             useSingleLayout -> {
-                // 单科固定高度布局：只设置该布局存在的 id
+                // 鍗曠鍥哄畾楂樺害甯冨眬锛氬彧璁剧疆璇ュ竷灞€瀛樺湪鐨?id
                 val palette = COURSE_PALETTE[courseHueIndex(courses[0]["name"] ?: "")]
                 views.setInt(R.id.course1_container, "setBackgroundResource", palette.bgRes)
                 views.setInt(R.id.course1_accent, "setBackgroundColor", palette.color)
@@ -240,7 +219,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.hcourse_row, View.VISIBLE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
                 setGone(views, V_CONTAINERS)
-                // 横排列数同样受高度格子数限制（2 格至多 2 列）
+                // 妯帓鍒楁暟鍚屾牱鍙楅珮搴︽牸瀛愭暟闄愬埗锛? 鏍艰嚦澶?2 鍒楋級
                 for (i in 0 until 6) {
                     if (i < courses.size && i < heightCells) {
                         val palette = COURSE_PALETTE[courseHueIndex(courses[i]["name"] ?: "")]
@@ -256,7 +235,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             else -> {
                 views.setViewVisibility(R.id.hcourse_row, View.GONE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
-                // 卡片用 weight 平分高度铺满；显示上限 = 高度格子数（2 格至多 2 节、3 格至多 3 节）
+                // 鍗＄墖鐢?weight 骞冲垎楂樺害閾烘弧锛涙樉绀轰笂闄?= 楂樺害鏍煎瓙鏁帮紙2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傦級
                 val maxCount = heightCells
                 for (i in 0 until 6) {
                     if (i < courses.size && i < maxCount) {
@@ -287,25 +266,24 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
         appWidgetManager.updateAppWidget(appWidgetId, views)
 
-        // 下课时刻自动刷新：安排到下一个下课时间点，到点重渲染（已下课课程消失）
-        scheduleNextRefresh(context, appWidgetId, widgetData)
+        // 涓嬭鏃跺埢鑷姩鍒锋柊锛氬畨鎺掑埌涓嬩竴涓笅璇炬椂闂寸偣锛屽埌鐐归噸娓叉煋锛堝凡涓嬭璇剧▼娑堝け锛?        scheduleNextRefresh(context, appWidgetId, widgetData)
     }
 
     private fun setGone(views: RemoteViews, ids: IntArray) {
         for (id in ids) views.setViewVisibility(id, View.GONE)
     }
 
-    /** 课程补充信息：时间 + 地点，用“·”连接，空字段自动省略。 */
+    /** 璇剧▼琛ュ厖淇℃伅锛氭椂闂?+ 鍦扮偣锛岀敤鈥溌封€濊繛鎺ワ紝绌哄瓧娈佃嚜鍔ㄧ渷鐣ャ€?*/
     private fun buildMeta(course: Map<String, String>): String {
         val parts = mutableListOf<String>()
         val time = course["time"]
         val location = course["location"]
         if (!time.isNullOrEmpty()) parts.add(time)
         if (!location.isNullOrEmpty()) parts.add(location)
-        return parts.joinToString(" · ")
+        return parts.joinToString(" 路 ")
     }
 
-    /** 解析 payload，按“当前周 + 当天星期”过滤，并做“下课过滤”。 */
+    /** 瑙ｆ瀽 payload锛屾寜鈥滃綋鍓嶅懆 + 褰撳ぉ鏄熸湡鈥濊繃婊わ紝骞跺仛鈥滀笅璇捐繃婊も€濄€?*/
     private fun parseData(raw: String): WidgetData {
         return try {
             val root = JSONObject(raw)
@@ -335,8 +313,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 ))
             }
 
-            // 下课过滤：结束时间已过的课程不再显示（进行中/未开始的保留）
-            val nowMs = System.currentTimeMillis()
+            // 涓嬭杩囨护锛氱粨鏉熸椂闂村凡杩囩殑璇剧▼涓嶅啀鏄剧ず锛堣繘琛屼腑/鏈紑濮嬬殑淇濈暀锛?            val nowMs = System.currentTimeMillis()
             val visible = allToday.filter { course ->
                 val endMs = courseEndMillis(course, periodTimes, periodDurations)
                 endMs == null || endMs > nowMs
@@ -375,7 +352,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         return map
     }
 
-    /** 课程下课时刻（毫秒时间戳）；缺节次时间/无法计算时返回 null。 */
+    /** 璇剧▼涓嬭鏃跺埢锛堟绉掓椂闂存埑锛夛紱缂鸿妭娆℃椂闂?鏃犳硶璁＄畻鏃惰繑鍥?null銆?*/
     private fun courseEndMillis(
         course: Map<String, String>,
         periodTimes: Map<Int, String>,
@@ -397,7 +374,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         return cal.timeInMillis + duration * 60_000L
     }
 
-    /** 默认节次开始时间 "HH:MM"（第 N 节 = 08:00 + (N-1)*50min）；超出 24 小时返回 null。 */
+    /** 榛樿鑺傛寮€濮嬫椂闂?"HH:MM"锛堢 N 鑺?= 08:00 + (N-1)*50min锛夛紱瓒呭嚭 24 灏忔椂杩斿洖 null銆?*/
     private fun defaultPeriodStart(period: Int): String? {
         val total = FIRST_PERIOD_MINUTES + (period - 1) * PERIOD_STEP_MINUTES
         if (total >= 24 * 60) return null
@@ -407,11 +384,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     }
 
     /**
-     * 安排下一次下课时刻的自动刷新。
-     * 用 setAndAllowWhileIdle（非精确闹钟，无需额外权限）；每次 onUpdate 都会
-     * 用相同 PendingIntent 重新设置，天然替换旧闹钟。无课程或无法计算下课时间
-     * 时不设置（由 updatePeriodMillis 30 分钟兜底，次日课程照常显示）。
-     */
+     * 瀹夋帓涓嬩竴娆′笅璇炬椂鍒荤殑鑷姩鍒锋柊銆?     * 鐢?setAndAllowWhileIdle锛堥潪绮剧‘闂归挓锛屾棤闇€棰濆鏉冮檺锛夛紱姣忔 onUpdate 閮戒細
+     * 鐢ㄧ浉鍚?PendingIntent 閲嶆柊璁剧疆锛屽ぉ鐒舵浛鎹㈡棫闂归挓銆傛棤璇剧▼鎴栨棤娉曡绠椾笅璇炬椂闂?     * 鏃朵笉璁剧疆锛堢敱 updatePeriodMillis 30 鍒嗛挓鍏滃簳锛屾鏃ヨ绋嬬収甯告樉绀猴級銆?     */
     private fun scheduleNextRefresh(context: Context, appWidgetId: Int, widgetData: WidgetData) {
         if (widgetData.allToday.isEmpty()) return
         val nowMs = System.currentTimeMillis()
@@ -448,27 +422,27 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         val end = obj.optInt("endPeriod", 0)
         val slot = obj.optString("timeSlot", "")
         return when {
-            start > 0 && end > 0 -> "第 $start-$end 节"
+            start > 0 && end > 0 -> "绗?$start-$end 鑺?
             slot.isNotEmpty() -> slot
             else -> ""
         }
     }
 
-    /** 头部日期文案，如“周一 9月12日”。 */
+    /** 澶撮儴鏃ユ湡鏂囨锛屽鈥滃懆涓€ 9鏈?2鏃モ€濄€?*/
     private fun buildDateText(): String {
         val cal = Calendar.getInstance()
         val weekday = WEEKDAY_CN[cal.get(Calendar.DAY_OF_WEEK) - 1]
         val month = cal.get(Calendar.MONTH) + 1
         val day = cal.get(Calendar.DAY_OF_MONTH)
-        return "$weekday ${month}月${day}日"
+        return "$weekday ${month}鏈?{day}鏃?
     }
 
-    /** 1=周日 … 7=周六 → DAY_KEYS 下标。 */
+    /** 1=鍛ㄦ棩 鈥?7=鍛ㄥ叚 鈫?DAY_KEYS 涓嬫爣銆?*/
     private fun dayOfWeekIndex(): Int {
         return Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1
     }
 
-    /** 按学期开始日期计算当前周（与 JS 侧逻辑一致：整周向上取整，不足 1 周按 1）。 */
+    /** 鎸夊鏈熷紑濮嬫棩鏈熻绠楀綋鍓嶅懆锛堜笌 JS 渚ч€昏緫涓€鑷达細鏁村懆鍚戜笂鍙栨暣锛屼笉瓒?1 鍛ㄦ寜 1锛夈€?*/
     private fun computeCurrentWeek(semesterStartDate: String): Int {
         return try {
             val parts = semesterStartDate.split("-")
