@@ -1,34 +1,23 @@
-import { createContext, PropsWithChildren, useContext, useState } from 'react';
-import { ScheduledCourse } from '@/types/timetable';
-
-interface PendingDeepLink {
-  courseId: string;
-  week: number;
-  course?: ScheduledCourse;
-}
+import { createContext, PropsWithChildren, useCallback, useContext, useMemo, useState } from 'react';
+import type { NotificationNavigationTarget } from '@/lib/notification-navigation';
 
 interface DeepLinkContextValue {
-  pendingDeepLink: PendingDeepLink | null;
-  setPendingDeepLink: (link: PendingDeepLink | null) => void;
-  consumePendingDeepLink: () => PendingDeepLink | null;
+  pendingDeepLink: NotificationNavigationTarget | null;
+  setPendingDeepLink: (link: NotificationNavigationTarget | null) => void;
+  clearPendingDeepLink: () => void;
 }
 
 const DeepLinkContext = createContext<DeepLinkContextValue | null>(null);
 
 export function DeepLinkProvider({ children }: PropsWithChildren) {
-  const [pendingDeepLink, setPendingDeepLink] = useState<PendingDeepLink | null>(null);
-
-  const consumePendingDeepLink = () => {
-    const link = pendingDeepLink;
-    setPendingDeepLink(null);
-    return link;
-  };
-
-  return (
-    <DeepLinkContext.Provider value={{ pendingDeepLink, setPendingDeepLink, consumePendingDeepLink }}>
-      {children}
-    </DeepLinkContext.Provider>
+  const [pendingDeepLink, setPendingDeepLink] = useState<NotificationNavigationTarget | null>(null);
+  const clearPendingDeepLink = useCallback(() => setPendingDeepLink(null), []);
+  const value = useMemo(
+    () => ({ pendingDeepLink, setPendingDeepLink, clearPendingDeepLink }),
+    [pendingDeepLink, clearPendingDeepLink],
   );
+
+  return <DeepLinkContext.Provider value={value}>{children}</DeepLinkContext.Provider>;
 }
 
 export function useDeepLink(): DeepLinkContextValue {

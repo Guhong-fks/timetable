@@ -318,21 +318,7 @@ async function setupNotificationChannel(): Promise<void> {
   });
 }
 
-/** 初始化通知系统 */
+/** 初始化通知系统。点击响应由根布局直接转为应用内状态。 */
 export async function initializeNotifications(): Promise<void> {
   await setupNotificationChannel();
-
-  // 设置通知点击监听器
-  Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data;
-    if (data?.type === 'class-reminder' && data.courseId) {
-      // 通过深度链接跳转到特定课程
-      const url = `coursetableapp://course/${data.courseId}?week=${data.week}`;
-      if (Platform.OS !== 'web') {
-        import('expo-linking').then(Linking => {
-          Linking.openURL(url).catch(() => {});
-        });
-      }
-    }
-  });
 }

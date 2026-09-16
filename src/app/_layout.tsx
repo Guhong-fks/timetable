@@ -1,11 +1,12 @@
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RnSplash } from '@/components/RnSplash';
+import { getNotificationNavigationTarget } from '@/lib/notification-navigation';
 import { BackgroundProvider, useBackground } from '@/state/background-context';
 import { DeepLinkProvider, useDeepLink } from '@/state/deep-link-context';
 import { ThemeProvider } from '@/state/theme-context';
 import { TimetableProvider, useTimetable } from '@/state/timetable';
-import * as Linking from 'expo-linking';
-import { Stack } from 'expo-router';
+import * as Notifications from 'expo-notifications';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback, useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -77,40 +78,27 @@ function SplashGate() {
 }
 
 function DeepLinkHandler() {
-  const { courses } = useTimetable();
   const { setPendingDeepLink } = useDeepLink();
+  const router = useRouter();
 
-  // useCallback + declared BEFORE the effect: keeps the listener effect's
-  // dependency referentially stable (rebuilds only when courses or the
-  // setter change — same resubscription timing as the previous [courses,
-  // setPendingDeepLink] deps) and satisfies the react-hooks/immutability
-  // declaration-order rule.
-  const handleDeepLink = useCallback((url: string) => {
-    // coursetableapp://course/<courseId>?week=<week>
-    const match = url.match(/coursetableapp:\/\/course\/([^?]+)\?week=(\d+)/);
-    if (match) {
-      const [, courseId, weekStr] = match;
-      const week = parseInt(weekStr, 10);
-      const course = courses.find(c => c.id === courseId);
-      if (course) {
-        setPendingDeepLink({ courseId, week, course });
-      }
-    }
-  }, [courses, setPendingDeepLink]);
+  const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
+    const target = getNotificationNavigationTarget(response.notification.request.content.data);
+    if (!target) return;
+    setPendingDeepLink(target);
+    // Internal navigation avoids exposing the course ID as an Expo Router URL.
+    router.replace('/');
+  }, [router, setPendingDeepLink]);
 
   useEffect(() => {
-    // Handle incoming deep links when app is already running
-    const subscription = Linking.addEventListener('url', ({ url }: { url: string }) => {
-      handleDeepLink(url);
-    });
-
-    // Handle initial URL if app was launched via deep link
-    Linking.getInitialURL().then((url: string | null) => {
-      if (url) handleDeepLink(url);
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      handleNotificationResponse(response);
+      void Notifications.clearLastNotificationResponseAsync();
     });
 
     return () => subscription.remove();
-  }, [handleDeepLink]);
+  }, [handleNotificationResponse]);
 
   return null;
 }

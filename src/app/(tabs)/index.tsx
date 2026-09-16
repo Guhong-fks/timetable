@@ -358,23 +358,23 @@ export default function TimetableScreen() {
     /** Controls the "解析详情" modal. */
     const [reportDetailOpen, setReportDetailOpen] = useState(false);
 
-    // Deep link handling
-    const { consumePendingDeepLink } = useDeepLink();
+    // Notification navigation is held until hydration completes, so cold-start
+    // taps cannot lose the course while AsyncStorage is still loading.
+    const { pendingDeepLink, clearPendingDeepLink } = useDeepLink();
     useEffect(() => {
-      const deepLink = consumePendingDeepLink();
-      if (deepLink?.course) {
-        // Navigate to the correct week first
-        if (deepLink.week >= 1 && deepLink.week <= semesterWeeks) {
-          startTransition(() => {
-            setSelectedWeek(deepLink.week);
-            setWeekInput(String(deepLink.week));
-          });
-        }
-        // Then open the course detail modal
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- deep link arrives once, before user interaction; the modal open is the point of the effect
-        setSelectedCourse(deepLink.course);
+      if (!isHydrated || !pendingDeepLink) return;
+
+      const course = courses.find(item => item.id === pendingDeepLink.courseId);
+      if (course && pendingDeepLink.week >= 1 && pendingDeepLink.week <= semesterWeeks) {
+        startTransition(() => {
+          setSelectedWeek(pendingDeepLink.week);
+          setWeekInput(String(pendingDeepLink.week));
+        });
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- opening the requested course is the effect's purpose
+        setSelectedCourse(course);
       }
-    }, [consumePendingDeepLink, semesterWeeks]);
+      clearPendingDeepLink();
+    }, [clearPendingDeepLink, courses, isHydrated, pendingDeepLink, semesterWeeks]);
 
     // Auto-jump to current week based on today's date
     const jumpToCurrentWeek = useCallback(() => {

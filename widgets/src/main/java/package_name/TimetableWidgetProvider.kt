@@ -178,7 +178,13 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         // 瀹借€岀煯锛堣秴瀹芥í鏉★紝濡?5脳2锛夋椂鍒囨崲妯帓锛涙櫘閫氱珫鏉★紙濡?3脳2銆?脳3銆?脳2锛?        // 涓€寰嬬珫鎺掞紝涓ら棬璇惧嵆涓よ閾烘弧鈥斺€旀敹绱цЕ鍙戞潯浠讹紝閬垮厤 3脳2 琚鍒ゆ垚妯帓锛?        // 璁╄鍗″彉鎴愪袱鍒楃獎鏉¤€岀牬鍧忊€滀袱琛岄摵婊♀€濇晥鏋溿€?        val wide = width >= height * 2.5f && height < 200
         // 楂樺害鏍煎瓙鏁?= 鏄剧ず璇剧▼鏁颁笂闄愶細2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傘€?~6 鏍煎搴?4~6 鑺傦紝
         // 灏侀《 6 鑺傦紙绔栨帓涓庢í鎺掍竴鑷达級
-        val heightCells = (height / CELL_HEIGHT_DP).roundToInt().coerceIn(1, 6)
+        // 按每节卡片最小需要高度反推能放几节，放不进就少显示，避免文字挤压重叠
+        val headerReserveDp = 46f
+        val paddingDp = 24f
+        val gapDp = 6f
+        val minCellDp = 60f
+        val availDp = (height - headerReserveDp - paddingDp).coerceAtLeast(0f)
+        val heightCells = (availDp / (minCellDp + gapDp)).toInt().coerceIn(1, 6)
         val courses = widgetData.courses
 
         // 鍗曠锛堜笖闈炴í鎺掞級鏃跺垏鎹㈠浐瀹氶珮搴﹀竷灞€锛氬崱鐗?56dp 鍥哄畾銆佷笅鏂圭暀鐧斤紝
