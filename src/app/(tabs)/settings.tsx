@@ -253,7 +253,7 @@ export default function SettingsScreen() {
               <ThemedText>背景图片</ThemedText>
               <View style={styles.row}>
                 <Pressable onPress={() => void pickBgImage()} style={styles.linkBtn}>
-                  <ThemedText style={styles.linkText}>选择图片</ThemedText>
+                  <ThemedText style={styles.linkText}>选择并裁剪</ThemedText>
                 </Pressable>
                 {bgImageUri && (
                   <Pressable onPress={() => void resetBgImage()} style={styles.linkBtn}>
@@ -264,6 +264,9 @@ export default function SettingsScreen() {
             </View>
             <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
               {bgImageUri ? '使用自定义图片' : '使用内置立绘'}
+            </ThemedText>
+            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+              裁剪框匹配课表实际显示区域，可拖动图片或双指缩放。
             </ThemedText>
 
             <View style={styles.rowBetween}>
@@ -284,7 +287,7 @@ export default function SettingsScreen() {
               <ThemedText>启动页图片</ThemedText>
               <View style={styles.row}>
                 <Pressable onPress={() => void pickSplashImage()} style={styles.linkBtn}>
-                  <ThemedText style={styles.linkText}>选择图片</ThemedText>
+                  <ThemedText style={styles.linkText}>选择并裁剪</ThemedText>
                 </Pressable>
                 {splashImageUri && (
                   <Pressable onPress={() => void resetSplashImage()} style={styles.linkBtn}>
@@ -295,6 +298,9 @@ export default function SettingsScreen() {
             </View>
             <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
               {splashImageUri ? '使用自定义图片' : '使用内置立绘'}
+            </ThemedText>
+            <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+              裁剪框匹配当前手机屏幕，可拖动图片或双指缩放。
             </ThemedText>
           </ThemedView>
 

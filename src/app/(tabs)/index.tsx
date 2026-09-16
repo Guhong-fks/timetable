@@ -280,7 +280,7 @@ const WeekGridBody = memo(function WeekGridBody({
 
 export default function TimetableScreen() {
   const theme = useTheme();
-  const { bgImageUri, bgOpacity } = useBackground();
+  const { bgImageUri, bgOpacity, setTimetableViewportSize } = useBackground();
   const isDark = theme.background === '#10151B';
   const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods, lastReport, dismissReport, updateCourse, addCourse, deleteCourses } = useTimetable();
     const [selectedWeek, setSelectedWeek] = useState(1);
@@ -780,7 +780,10 @@ export default function TimetableScreen() {
   const gridW = TIME_COL_WIDTH + scrollBounds.dayW * 7;
 
   return (
-    <ThemedView style={[styles.container, { backgroundColor: theme.background }]}>
+    <ThemedView
+      style={[styles.container, { backgroundColor: theme.background }]}
+      onLayout={(event) => setTimetableViewportSize(event.nativeEvent.layout)}
+    >
       {/* 背景立绘：极低透明度铺满屏幕，作为课表底纹，不干扰课卡阅读。 */}
       {/* 课表背景图：固定不动，铺满整个内容区（tab/导航键之外）。 */}
       <Image
