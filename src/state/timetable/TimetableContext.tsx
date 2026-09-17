@@ -1,6 +1,7 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { ScheduledCourse, TimetableData } from '@/types/timetable';
 import type { ImportReport } from './types';
+import type { TimetableProfile } from './profiles';
 import { useTimetableStore } from './useTimetableStore';
 import { useDebouncedPersist } from './useDebouncedPersist';
 import { loadSnapshot } from './storage';
@@ -39,6 +40,12 @@ interface ContextValue {
   setSemesterWeeks: (n: number) => void;
   setMaxPeriods: (n: number) => void;
   dismissReport: () => void;
+  profiles: TimetableProfile[];
+  activeProfileId: string;
+  switchProfile: (id: string) => void;
+  addProfile: (name: string) => void;
+  renameProfile: (id: string, name: string) => void;
+  deleteProfile: (id: string) => void;
 }
 
 const TimetableContext = createContext<ContextValue | null>(null);
@@ -81,14 +88,7 @@ export function TimetableProvider({ children }: PropsWithChildren) {
     let mounted = true;
     void loadSnapshot().then((snapshot) => {
       if (!mounted) return;
-      store.replaceCourses(
-        snapshot.courses,
-        snapshot.importedFileName,
-        snapshot.semesterStartDate,
-        snapshot.lastReport,
-      );
-      // 恢复上次保存的周数/节数为手动锁定值。
-      store.restoreManualBounds(snapshot.semesterWeeks, snapshot.maxPeriods);
+      store.restoreSnapshot(snapshot);
       store.setHydrated(true);
     });
     return () => {
@@ -186,6 +186,12 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       setSemesterWeeks: store.setSemesterWeeks,
       setMaxPeriods: store.setMaxPeriods,
       dismissReport: store.dismissReport,
+      profiles: store.profiles,
+      activeProfileId: store.activeProfileId,
+      switchProfile: store.switchProfile,
+      addProfile: store.addProfile,
+      renameProfile: store.renameProfile,
+      deleteProfile: store.deleteProfile,
     }),
     [
       store.snapshot.courses,
@@ -205,6 +211,12 @@ export function TimetableProvider({ children }: PropsWithChildren) {
       store.setSemesterWeeks,
       store.setMaxPeriods,
       store.dismissReport,
+      store.profiles,
+      store.activeProfileId,
+      store.switchProfile,
+      store.addProfile,
+      store.renameProfile,
+      store.deleteProfile,
     ],
   );
 

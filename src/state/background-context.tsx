@@ -1,4 +1,4 @@
-import { BG_IMAGE_KEY, BG_OPACITY_KEY, SPLASH_IMAGE_KEY } from '@/constants/storage-keys';
+import { BG_IMAGE_KEY, BG_OPACITY_KEY, CARD_OPACITY_KEY, SPLASH_IMAGE_KEY } from '@/constants/storage-keys';
 import { createCropTarget } from '@/lib/image-crop';
 import { getStoredValue, setStoredValue } from '@/lib/storage';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -9,6 +9,7 @@ import { Dimensions, PixelRatio } from 'react-native';
 
 /** 课表背景图默认透明度（浅色模式；深色模式会再减半）。 */
 const DEFAULT_BG_OPACITY = 0.3;
+const DEFAULT_CARD_OPACITY = 1;
 
 type ViewportSize = { width: number; height: number };
 
@@ -17,6 +18,8 @@ interface BackgroundContextValue {
   bgImageUri: string | null;
   /** 课表背景图透明度 0~1。 */
   bgOpacity: number;
+  /** 课卡透明度 0~1。 */
+  cardOpacity: number;
   /** 用户自选启动页图的本地 URI；null 表示用内置默认立绘。 */
   splashImageUri: string | null;
   /** 记录课表背景实际铺设区域，供裁剪器使用。 */
@@ -25,6 +28,7 @@ interface BackgroundContextValue {
   pickBgImage: () => Promise<void>;
   resetBgImage: () => Promise<void>;
   setBgOpacity: (v: number) => Promise<void>;
+  setCardOpacity: (v: number) => Promise<void>;
   pickSplashImage: () => Promise<void>;
   resetSplashImage: () => Promise<void>;
 }
@@ -66,6 +70,7 @@ async function pickAndCrop(size: ViewportSize, name: string): Promise<string | n
 export function BackgroundProvider({ children }: PropsWithChildren) {
   const [bgImageUri, setBgImageUri] = useState<string | null>(null);
   const [bgOpacity, setBgOpacityState] = useState(DEFAULT_BG_OPACITY);
+  const [cardOpacity, setCardOpacityState] = useState(DEFAULT_CARD_OPACITY);
   const [splashImageUri, setSplashImageUri] = useState<string | null>(null);
   const [timetableViewport, setTimetableViewport] = useState<ViewportSize>(() => {
     const window = Dimensions.get('window');
@@ -74,15 +79,20 @@ export function BackgroundProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void (async () => {
-      const [bg, op, sp] = await Promise.all([
+      const [bg, op, cardOp, sp] = await Promise.all([
         getStoredValue(BG_IMAGE_KEY),
         getStoredValue(BG_OPACITY_KEY),
+        getStoredValue(CARD_OPACITY_KEY),
         getStoredValue(SPLASH_IMAGE_KEY),
       ]);
       if (bg) setBgImageUri(bg);
       if (op !== null) {
         const n = Number(op);
         if (Number.isFinite(n)) setBgOpacityState(Math.min(1, Math.max(0.05, n)));
+      }
+      if (cardOp !== null) {
+        const n = Number(cardOp);
+        if (Number.isFinite(n)) setCardOpacityState(Math.min(1, Math.max(0.1, n)));
       }
       if (sp) setSplashImageUri(sp);
     })();
@@ -115,6 +125,12 @@ export function BackgroundProvider({ children }: PropsWithChildren) {
     await setStoredValue(BG_OPACITY_KEY, JSON.stringify(clamped));
   }, []);
 
+  const setCardOpacity = useCallback(async (v: number) => {
+    const clamped = Math.min(1, Math.max(0.1, v));
+    setCardOpacityState(clamped);
+    await setStoredValue(CARD_OPACITY_KEY, JSON.stringify(clamped));
+  }, []);
+
   const pickSplashImage = useCallback(async () => {
     const window = Dimensions.get('window');
     const saved = await pickAndCrop(
@@ -136,11 +152,13 @@ export function BackgroundProvider({ children }: PropsWithChildren) {
       value={{
         bgImageUri,
         bgOpacity,
+        cardOpacity,
         splashImageUri,
         setTimetableViewportSize,
         pickBgImage,
         resetBgImage,
         setBgOpacity,
+        setCardOpacity,
         pickSplashImage,
         resetSplashImage,
       }}

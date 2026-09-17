@@ -4,6 +4,13 @@ import { ThemedView } from '@/components/themed-view';
 import { NOTIFICATION_ENABLED_KEY, NOTIFICATION_LEAD_MINUTES_KEY } from '@/constants/storage-keys';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import {
+  applyHotUpdate,
+  checkHotUpdate,
+  getRuntimeVersion,
+  getUpdateChannel,
+  isHotUpdateSupported,
+} from '@/lib/hot-update';
+import {
   beginScheduleEpoch,
   cancelAllNotifications,
   DEFAULT_LEAD_MINUTES,
@@ -12,13 +19,6 @@ import {
   requestNotificationPermissions,
   scheduleAllNotifications,
 } from '@/lib/notifications';
-import {
-  applyHotUpdate,
-  checkHotUpdate,
-  getRuntimeVersion,
-  getUpdateChannel,
-  isHotUpdateSupported,
-} from '@/lib/hot-update';
 import { setStoredValue } from '@/lib/storage';
 import { sendTestNotification } from '@/lib/test-notification';
 import { checkForUpdates, getCurrentVersion, UpdateCheckError } from '@/lib/update-check';
@@ -28,16 +28,16 @@ import { useTimetable } from '@/state/timetable';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useEffect, useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import type { AlertButton } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
   const { mode, setMode } = useAppTheme();
   const { clearCourses, courses, importedFileName, semesterStartDate, semesterWeeks, maxPeriods, setSemesterWeeks, setMaxPeriods } = useTimetable();
   const {
-    bgImageUri, bgOpacity, splashImageUri,
-    pickBgImage, resetBgImage, setBgOpacity,
+    bgImageUri, bgOpacity, cardOpacity, splashImageUri,
+    pickBgImage, resetBgImage, setBgOpacity, setCardOpacity,
     pickSplashImage, resetSplashImage,
   } = useBackground();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -279,6 +279,20 @@ export default function SettingsScreen() {
               step={0.05}
               value={bgOpacity}
               onValueChange={(v) => void setBgOpacity(v)}
+              minimumTrackTintColor="#4A90D9"
+              maximumTrackTintColor="#ccc"
+            />
+
+            <View style={styles.rowBetween}>
+              <ThemedText>课卡不透明度</ThemedText>
+              <ThemedText themeColor="textSecondary">{Math.round(cardOpacity * 100)}%</ThemedText>
+            </View>
+            <Slider
+              minimumValue={0.1}
+              maximumValue={1}
+              step={0.05}
+              value={cardOpacity}
+              onValueChange={(v) => void setCardOpacity(v)}
               minimumTrackTintColor="#4A90D9"
               maximumTrackTintColor="#ccc"
             />

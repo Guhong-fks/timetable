@@ -2,6 +2,7 @@ import { CourseEditModal } from '@/components/CourseEditModal';
 import { PeriodTimeModal } from '@/components/PeriodTimeModal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { TimetableSwitcherModal } from '@/components/TimetableSwitcherModal';
 import { PERIOD_DURATIONS_KEY, PERIOD_TIMES_KEY } from '@/constants/storage-keys';
 import { GridLineAlpha, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -25,6 +26,7 @@ import { useDeepLink } from '@/state/deep-link-context';
 import type { ImportReport } from '@/state/timetable';
 import { useTimetable } from '@/state/timetable';
 import { coursesForWeek, coursesToTimetable, getTimeSlotMeta, periodsArray, TimeSlot, WEEK_DAY_LABELS, WEEK_DAYS, type ScheduledCourse, type TimetableData, type WeekDay } from '@/types/timetable';
+import { Ionicons } from '@expo/vector-icons';
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutChangeEvent } from 'react-native';
 import { AppState, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
@@ -74,6 +76,7 @@ function renderCourseCardStatic(
   duration: number,
   onCoursePress: (course: ScheduledCourse) => void,
   theme: ReturnType<typeof useTheme>,
+  cardOpacity: number,
 ) {
   const isDark = theme.background === '#10151B';
   // Dark mode: every card is the same SOLID gray-blue — no alpha wash,
@@ -94,16 +97,16 @@ function renderCourseCardStatic(
         isDark || hue === null
           ? {
               height: cardHeight,
-              backgroundColor: DARK_CARD_BODY,
-              borderColor: DARK_CARD_RIM,
-              borderTopColor: DARK_CARD_RIM,
+              backgroundColor: withAlpha(DARK_CARD_BODY, cardOpacity),
+                            borderColor: withAlpha(DARK_CARD_RIM, cardOpacity),
+                            borderTopColor: withAlpha(DARK_CARD_RIM, cardOpacity),
               opacity: pressed ? 0.88 : 1,
             }
           : {
               height: cardHeight,
-              backgroundColor: withAlpha(hue, 0.14),
-              borderColor: withAlpha(hue, 0.4),
-              borderTopColor: hue,
+              backgroundColor: withAlpha(hue, cardOpacity),
+                            borderColor: withAlpha(hue, cardOpacity),
+                            borderTopColor: withAlpha(hue, cardOpacity),
               opacity: pressed ? 0.82 : 1,
             },
       ]}
@@ -141,6 +144,7 @@ interface WeekGridBodyProps {
   /** Pre-bucketed, positioned courses for THIS panel's week. */
   positioned: Record<string, { top: number; height: number; course: ScheduledCourse }[]>;
   theme: ReturnType<typeof useTheme>;
+  cardOpacity: number;
   /** Week number for the day-header dates, and whether that week
    * contains today (drives the today highlight inside the panel). */
   week: number;
@@ -172,6 +176,7 @@ interface WeekGridBodyProps {
 const WeekGridBody = memo(function WeekGridBody({
   positioned,
   theme,
+  cardOpacity,
   week,
   weekIsCurrent,
   todayDay,
@@ -268,7 +273,7 @@ const WeekGridBody = memo(function WeekGridBody({
                   { top, height },
                 ]}
               >
-                {renderCourseCardStatic(course, (course.duration ?? (getTimeSlotMeta(course.timeSlot)?.duration ?? 1)), onCoursePress, theme)}
+                {renderCourseCardStatic(course, (course.duration ?? (getTimeSlotMeta(course.timeSlot)?.duration ?? 1)), onCoursePress, theme, cardOpacity)}
               </View>
             ))}
           </View>
@@ -280,9 +285,9 @@ const WeekGridBody = memo(function WeekGridBody({
 
 export default function TimetableScreen() {
   const theme = useTheme();
-  const { bgImageUri, bgOpacity, setTimetableViewportSize } = useBackground();
+  const { bgImageUri, bgOpacity, cardOpacity, setTimetableViewportSize } = useBackground();
   const isDark = theme.background === '#10151B';
-  const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods, lastReport, dismissReport, updateCourse, addCourse, deleteCourses } = useTimetable();
+  const { courses, isHydrated, semesterStartDate, semesterWeeks, maxPeriods, lastReport, dismissReport, updateCourse, addCourse, deleteCourses, profiles, activeProfileId, switchProfile, addProfile, renameProfile, deleteProfile } = useTimetable();
     const [selectedWeek, setSelectedWeek] = useState(1);
     const [weekInput, setWeekInput] = useState('1');
 
@@ -357,6 +362,7 @@ export default function TimetableScreen() {
     const [periodDurationInput, setPeriodDurationInput] = useState('45');
     /** Controls the "解析详情" modal. */
     const [reportDetailOpen, setReportDetailOpen] = useState(false);
+    const [switcherOpen, setSwitcherOpen] = useState(false);
 
     // Notification navigation is held until hydration completes, so cold-start
     // taps cannot lose the course while AsyncStorage is still loading.
@@ -799,7 +805,13 @@ export default function TimetableScreen() {
               {courses.length ? `${displayCount} 门课程 · 第 ${displayWeek} 周` : '点击空白格手动添加课程，请先在设置中确定周数和节数'}
             </ThemedText>
           </View>
-          <View style={styles.weekControls}>
+          <View style={styles.headerRight}>
+            <Pressable onPress={() => setSwitcherOpen(true)} style={[styles.switcherButton, { borderColor: theme.textSecondary + '66', backgroundColor: theme.backgroundElement }]} accessibilityRole="button" accessibilityLabel="切换课表">
+              <Ionicons name="albums-outline" size={15} color={theme.text} />
+              <ThemedText type="smallBold" numberOfLines={1} style={styles.switcherLabel}>{profiles.find(p => p.id === activeProfileId)?.name ?? '我的课表'}</ThemedText>
+              <Ionicons name="chevron-down" size={13} color={theme.textSecondary} />
+            </Pressable>
+            <View style={styles.weekControls}>
             <TextInput
               value={weekInput}
               onChangeText={value => setWeekInput(value.replace(/[^0-9]/g, ''))}
@@ -811,6 +823,7 @@ export default function TimetableScreen() {
               accessibilityLabel="当前周次"
             />
             <ThemedText type="small" themeColor="textSecondary" style={styles.weekTotal}>/ {semesterWeeks}</ThemedText>
+          </View>
           </View>
         </View>
 
@@ -825,6 +838,7 @@ export default function TimetableScreen() {
                 <WeekGridBody
                   positioned={positionedCourses}
                   theme={theme}
+                  cardOpacity={cardOpacity}
                   week={selectedWeek}
                   weekIsCurrent={selectedWeekIsCurrent}
                   todayDay={todayDay}
@@ -852,6 +866,7 @@ export default function TimetableScreen() {
                     <WeekGridBody
                       positioned={rightPositioned}
                       theme={theme}
+                  cardOpacity={cardOpacity}
                       week={neighborRight}
                       weekIsCurrent={false}
                       todayDay={todayDay}
@@ -878,6 +893,7 @@ export default function TimetableScreen() {
                     <WeekGridBody
                       positioned={leftPositioned}
                       theme={theme}
+                  cardOpacity={cardOpacity}
                       week={neighborLeft}
                       weekIsCurrent={false}
                       todayDay={todayDay}
@@ -955,6 +971,18 @@ export default function TimetableScreen() {
                         <ReportDetailModal
                           report={lastReport}
                           onClose={() => setReportDetailOpen(false)}
+                        />
+                      )}
+                      {switcherOpen && (
+                        <TimetableSwitcherModal
+                          visible={switcherOpen}
+                          profiles={profiles}
+                          activeProfileId={activeProfileId}
+                          onSwitch={switchProfile}
+                          onAdd={addProfile}
+                          onRename={renameProfile}
+                          onDelete={deleteProfile}
+                          onClose={() => setSwitcherOpen(false)}
                         />
                       )}
                       {selectedPeriod !== null && (
@@ -1164,7 +1192,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center', paddingHorizontal: 0, paddingBottom: 4, paddingTop: 0 },
+  safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center', paddingHorizontal: 0, paddingBottom: 0, paddingTop: 0 },
 
   // Compact header: week info + week selector
   header: {
@@ -1175,7 +1203,10 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   headerLeft: { flex: 1 },
-  summaryText: { fontSize: 12, lineHeight: 16, opacity: 0.85 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '68%' },
+  switcherButton: { flexDirection: 'row', alignItems: 'center', gap: 2, maxWidth: 150, minHeight: 20, paddingHorizontal: 5, borderWidth: 1, borderRadius: 5 },
+  switcherLabel: { flexShrink: 1 },
+  summaryText: { fontSize: 10, lineHeight: 12, opacity: 0.85 },
 
   weekControls: {
     flexDirection: 'row',
@@ -1183,7 +1214,7 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   weekInput: {
-    width: 28, height: 22,
+      width: 25, height: 19,
     borderWidth: 1,
     borderRadius: 4,
     textAlign: 'center',

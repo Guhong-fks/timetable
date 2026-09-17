@@ -1,8 +1,8 @@
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
-import { useAppTheme } from '@/state/theme-context';
 import { Colors } from '@/constants/theme';
+import { useAppTheme } from '@/state/theme-context';
+import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 
 export default function TabLayout() {
   const { theme } = useAppTheme();
@@ -20,8 +20,10 @@ export default function TabLayout() {
         screenOptions={{
           tabBarActiveTintColor: activeColor,
           tabBarInactiveTintColor: inactiveColor,
-          tabBarStyle: { backgroundColor: tabBarBackground, borderTopWidth: 0, elevation: 0 },
-          tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+          tabBarStyle: { backgroundColor: tabBarBackground, borderTopWidth: 0, elevation: 0, height: 50, paddingTop: 2, paddingBottom: 2 },
+          tabBarItemStyle: { paddingVertical: 0 },
+          tabBarIconStyle: { marginTop: 0, marginBottom: -2 },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginBottom: 0 },
         }}
       >
         <Tabs.Screen

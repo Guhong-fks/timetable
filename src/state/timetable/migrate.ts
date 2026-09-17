@@ -1,5 +1,6 @@
 import { sanitizeCourses, DEFAULT_SEMESTER_WEEKS, DEFAULT_MAX_PERIODS } from '@/types/timetable';
 import type { TimetableSnapshot } from './types';
+import { normalizeCollection } from './profiles';
 
 /**
  * Canonical "nothing imported yet" snapshot. Returned by `loadSnapshot`
@@ -16,8 +17,8 @@ export const EMPTY_SNAPSHOT: TimetableSnapshot = {
 };
 
 /**
- * Convert an arbitrary parsed JSON payload (v1 / v2 / v3 / v4) into the
- * canonical v4 `TimetableSnapshot`. Strips removed fields, coerces
+ * Convert an arbitrary parsed JSON payload (v1 / v2 / v3 / v4 / v5) into the
+ * canonical v5 `TimetableSnapshot`. Strips removed fields, coerces
  * legacy week shapes via `sanitizeCourses`, and fills missing scalar
  * fields with the empty-snapshot defaults.
  *
@@ -26,8 +27,9 @@ export const EMPTY_SNAPSHOT: TimetableSnapshot = {
  * coverage of this transform.
  */
 export function migrateToV4(parsed: unknown): TimetableSnapshot {
-  const raw = (parsed ?? {}) as Partial<TimetableSnapshot> & { courses?: unknown };
-  return {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return EMPTY_SNAPSHOT;
+  const raw = parsed as Partial<TimetableSnapshot> & { courses?: unknown };
+  const legacy: TimetableSnapshot = {
     courses: sanitizeCourses(raw.courses),
     importedFileName: raw.importedFileName,
     semesterStartDate: raw.semesterStartDate,
@@ -37,6 +39,8 @@ export function migrateToV4(parsed: unknown): TimetableSnapshot {
     // for imports done after this field was added.
     lastReport: undefined,
   };
+  const collection = normalizeCollection(raw, legacy);
+  return { ...legacy, profiles: collection.profiles, activeProfileId: collection.activeProfileId };
 }
 
 /**

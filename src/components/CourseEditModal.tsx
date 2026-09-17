@@ -1,10 +1,69 @@
-import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Image, KeyboardAvoidingView, Modal, Pressable, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { useTheme } from '@/hooks/use-theme';
 import { Spacing, Colors } from '@/constants/theme';
 import { COURSE_PALETTE, courseHue } from '@/lib/course-palette';
+import { getStoredValue, setStoredValue } from '@/lib/storage';
 import { periodsArray, WEEK_DAY_LABELS, type ScheduledCourse } from '@/types/timetable';
+
+const RECENT_CUSTOM_COLORS_KEY = 'course-table-app.recent-custom-colors.v1';
+const MAX_RECENT_CUSTOM_COLORS = 5;
+
+function hsvToHex(h: number, s: number): string {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = 1 - s;
+  const q = 1 - f * s;
+  const t = f;
+  const rgb = [[1, t, p], [q, 1, p], [p, 1, t], [p, q, 1], [t, p, 1], [1, p, q]][i % 6];
+  return `#${rgb.map(channel => Math.round(channel * 255).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+function ColorWheel({ color, onChange }: { color: string; onChange: (color: string) => void }) {
+  const size = 220;
+  const [point, setPoint] = useState({ x: size / 2, y: size / 2 });
+  const pick = (x: number, y: number) => {
+    const center = size / 2;
+    const dx = x - center;
+    const dy = y - center;
+    const distance = Math.hypot(dx, dy);
+    const radius = center - 2;
+    if (distance > radius) return;
+    const saturation = Math.min(distance / radius, 1);
+    const hue = (Math.atan2(dy, dx) / (Math.PI * 2) + 1) % 1;
+    setPoint({ x, y });
+    onChange(hsvToHex(hue, saturation));
+  };
+  return (
+    <View style={styles.wheel} onStartShouldSetResponder={() => true} onResponderGrant={event => pick(event.nativeEvent.locationX, event.nativeEvent.locationY)} onResponderMove={event => pick(event.nativeEvent.locationX, event.nativeEvent.locationY)}>
+      <Image source={require('../../assets/images/color-wheel.png')} style={styles.wheelImage} />
+      <View pointerEvents="none" style={[styles.wheelPointer, { left: point.x - 7, top: point.y - 7, borderColor: color }]} />
+    </View>
+  );
+}
+
+function ColorWheelModal({ visible, color, onChange, onClose }: { visible: boolean; color: string; onChange: (color: string) => void; onClose: () => void }) {
+  const theme = useTheme();
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.wheelModalOverlay}>
+        <View style={[styles.wheelModalCard, { backgroundColor: theme.backgroundElement }]}>
+          <View style={styles.wheelModalHeader}>
+            <ThemedText type="subtitle">自定义颜色</ThemedText>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="关闭颜色选择器"><ThemedText type="smallBold" themeColor="textSecondary">×</ThemedText></Pressable>
+          </View>
+          <ColorWheel color={color} onChange={onChange} />
+          <View style={styles.wheelModalFooter}>
+            <View style={[styles.colorPreview, { backgroundColor: color }]} />
+            <ThemedText type="small" themeColor="textSecondary">{color}</ThemedText>
+            <Pressable onPress={onClose} style={[styles.wheelDoneButton, { backgroundColor: theme.backgroundSelected }]}><ThemedText type="smallBold">完成</ThemedText></Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export interface CourseEditModalProps {
   course: ScheduledCourse;
@@ -45,6 +104,23 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
   const [name, setName] = useState(course.name);
   const [color, setColor] = useState<string>(course.colorOverride ?? courseHue(course.name));
   const [colorIsCustom, setColorIsCustom] = useState<boolean>(course.colorOverride != null);
+  const [colorMode, setColorMode] = useState<'preset' | 'custom'>(course.colorOverride != null ? 'custom' : 'preset');
+  const [colorWheelOpen, setColorWheelOpen] = useState(false);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
+  useEffect(() => {
+    void getStoredValue(RECENT_CUSTOM_COLORS_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setRecentColors(parsed.filter((value): value is string => typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value)).slice(0, MAX_RECENT_CUSTOM_COLORS));
+      } catch { /* ignore corrupt preference */ }
+    });
+  }, []);
+  const rememberCustomColor = async (nextColor: string) => {
+    const next = [nextColor, ...recentColors.filter(item => item !== nextColor)].slice(0, MAX_RECENT_CUSTOM_COLORS);
+    setRecentColors(next);
+    await setStoredValue(RECENT_CUSTOM_COLORS_KEY, JSON.stringify(next));
+  };
   const [startPeriod, setStartPeriod] = useState(String(course.startPeriod));
   const [endPeriod, setEndPeriod] = useState(String(course.endPeriod));
   const [teacher, setTeacher] = useState(course.teacher.name);
@@ -143,28 +219,47 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
             {!isDark && (
               <>
                 <ThemedText type="smallBold" style={styles.fieldLabel}>课卡颜色</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.paletteHint}>预设颜色</ThemedText>
                 <View style={styles.colorRow}>
                   {COURSE_PALETTE.map(hex => (
                     <Pressable
                       key={hex}
-                      onPress={() => { setColor(hex); setColorIsCustom(true); }}
-                      style={[
-                        styles.colorDot,
-                        { backgroundColor: hex },
-                        colorIsCustom && color === hex && styles.colorDotSelected,
-                      ]}
+                      onPress={() => { setColor(hex); setColorIsCustom(true); setColorMode('preset'); }}
+                      style={[styles.colorDot, { backgroundColor: hex }, colorMode === 'preset' && colorIsCustom && color === hex && styles.colorDotSelected]}
                       accessibilityRole="button"
                       accessibilityLabel={`选择颜色 ${hex}`}
                     />
                   ))}
                   <Pressable
-                    onPress={() => setColorIsCustom(false)}
+                    onPress={() => { setColorIsCustom(false); setColorMode('preset'); }}
                     style={[styles.colorDot, styles.defaultDot, { borderColor: theme.textSecondary }, !colorIsCustom && styles.colorDotSelected]}
                     accessibilityRole="button"
                     accessibilityLabel="使用默认颜色"
                   >
                     <ThemedText type="small" themeColor="textSecondary" style={styles.defaultDotText}>默认</ThemedText>
                   </Pressable>
+                  <Pressable
+                    onPress={() => { setColorMode('custom'); setColorIsCustom(true); setColorWheelOpen(true); }}
+                    style={[styles.customColorButton, { borderColor: theme.backgroundSelected }, colorMode === 'custom' && styles.colorDotSelected]}
+                    accessibilityRole="button"
+                    accessibilityLabel="打开自定义色盘"
+                  >
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.defaultDotText}>自定义</ThemedText>
+                  </Pressable>
+                  {recentColors.length > 0 && (
+                    <View style={styles.recentColorRow}>
+                      <ThemedText type="small" themeColor="textSecondary" style={styles.recentLabel}>最近</ThemedText>
+                      {recentColors.map(hex => (
+                        <Pressable
+                          key={hex}
+                          onPress={() => { setColor(hex); setColorIsCustom(true); setColorMode('custom'); }}
+                          style={[styles.recentColorDot, { backgroundColor: hex }, colorMode === 'custom' && color === hex && styles.colorDotSelected]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`使用最近颜色 ${hex}`}
+                        />
+                      ))}
+                    </View>
+                  )}
                 </View>
               </>
             )}
@@ -271,6 +366,12 @@ export function CourseEditModal({ course, semesterWeeks, mode = 'edit', onUpdate
               onCancel={() => setConfirmScope(null)}
             />
           )}
+          <ColorWheelModal
+            visible={colorWheelOpen}
+            color={color}
+            onChange={next => { setColor(next); setColorIsCustom(true); setColorMode('custom'); }}
+            onClose={() => { void rememberCustomColor(color); setColorWheelOpen(false); }}
+          />
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -487,7 +588,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   noteInput: { height: 72, textAlignVertical: 'top', paddingTop: Spacing.two },
+  customColorButton: { width: 58, height: 30, borderRadius: 8, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  wheelModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.three },
+  wheelModalCard: { width: 280, borderRadius: 16, padding: Spacing.three, alignItems: 'center' },
+  wheelModalHeader: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.two },
+  wheelModalFooter: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.three },
+  wheelDoneButton: { marginLeft: 'auto', borderRadius: 8, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
+  wheelPickerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  wheel: { width: 220, height: 220, borderRadius: 110, overflow: 'hidden', position: 'relative' },
+  wheelImage: { width: 220, height: 220 },
+  wheelPointer: { position: 'absolute', width: 14, height: 14, borderRadius: 7, borderWidth: 2, backgroundColor: '#FFFFFF88' },
+  colorPreviewColumn: { flex: 1, alignItems: 'center', gap: Spacing.one },
+  colorPreview: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, borderColor: '#FFFFFF' },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, alignItems: 'center' },
+  paletteHint: { marginTop: Spacing.one },
+  recentColorRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: Spacing.one },
+  recentLabel: { fontSize: 10 },
+  recentColorDot: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: '#FFFFFF88' },
   colorDot: { width: 30, height: 30, borderRadius: 15 },
   colorDotSelected: { borderWidth: 2.5, borderColor: '#FFFFFF88' },
   defaultDot: { borderWidth: 1, justifyContent: 'center', alignItems: 'center' },

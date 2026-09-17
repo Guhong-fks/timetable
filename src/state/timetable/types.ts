@@ -1,5 +1,6 @@
 import type { ScheduledCourse } from '@/types/timetable';
 import type { ReportWarning } from '@/lib/reporting/types';
+import type { TimetableProfile } from './profiles';
 
 /**
  * Snapshot of an import's parse report. Lives next to the imported
@@ -27,15 +28,17 @@ export interface TimetableSnapshot {
   semesterWeeks: number;
   maxPeriods: number;
   lastReport?: ImportReport;
+  profiles?: TimetableProfile[];
+  activeProfileId?: string;
 }
 
-export const CURRENT_VERSION = 4 as const;
+export const CURRENT_VERSION = 5 as const;
 
 /**
- * Canonical storage key for v4 payloads. Bumping to v5 only requires
+ * Canonical storage key for v5 payloads. Bumping to v6 only requires
  * changing this constant and adding an entry to LEGACY_KEYS.
  */
-export const STORAGE_KEY = 'course-table-app.timetable.v4';
+export const STORAGE_KEY = 'course-table-app.timetable.v5';
 
 /**
  * Legacy storage keys, newest → oldest. The migration reads each in
@@ -43,6 +46,7 @@ export const STORAGE_KEY = 'course-table-app.timetable.v4';
  * The unversioned key was used before versioning was introduced.
  */
 export const LEGACY_KEYS = [
+  'course-table-app.timetable.v4',
   'course-table-app.timetable.v3',
   'course-table-app.timetable.v2',
   'course-table-app',

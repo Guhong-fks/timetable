@@ -11,4 +11,5 @@ export const NOTIFICATION_ENABLED_KEY = 'course-table-app.notifications.enabled.
 export const NOTIFICATION_LEAD_MINUTES_KEY = 'course-table-app.notifications.lead-minutes.v1';
 export const BG_IMAGE_KEY = 'course-table-app.bg-image.v1';
 export const BG_OPACITY_KEY = 'course-table-app.bg-opacity.v1';
+export const CARD_OPACITY_KEY = 'course-table-app.card-opacity.v1';
 export const SPLASH_IMAGE_KEY = 'course-table-app.splash-image.v1';
