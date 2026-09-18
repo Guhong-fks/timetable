@@ -1,8 +1,14 @@
+import { AhuImportModal } from '@/components/AhuImportModal';
+import { CjluImportModal } from '@/components/CjluImportModal';
 import { ImportPreview } from '@/components/ImportPreview';
+import { SchoolWebModal } from '@/components/SchoolWebModal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { loadAhuCredentials } from '@/lib/importers/ahu-credentials';
+import { mergeAhuCourseCustomizations, summarizeAhuCourseChanges } from '@/lib/importers/ahu-importer';
+import { loadCjluCredentials } from '@/lib/importers/cjlu-credentials';
 import { ImportDiagnosticsError, isNativeBridgeAvailable, parseTimetableFile } from '@/lib/importers/timetable-importer';
 import type { ReportWarning } from '@/lib/reporting/types';
 import { loadPeriodSchedule } from '@/lib/widget-data';
@@ -10,8 +16,8 @@ import { useTimetable } from '@/state/timetable';
 import type { ScheduledCourse } from '@/types/timetable';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface PendingImport {
@@ -32,12 +38,53 @@ function probeNativeOnce(): boolean {
   return nativeProbeCache;
 }
 
+function SchoolEntry({
+  name,
+  hint,
+  iconColor,
+  actionLabel,
+  onPress,
+}: {
+  name: string;
+  hint: string;
+  iconColor: string;
+  actionLabel: string;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.schoolRow}>
+      <View style={[styles.schoolIcon, { backgroundColor: `${iconColor}1A` }]}>
+        <Ionicons name="school-outline" size={22} color={iconColor} />
+      </View>
+      <View style={styles.schoolInfo}>
+        <ThemedText type="smallBold">{name}</ThemedText>
+        <ThemedText themeColor="textSecondary" style={styles.hint}>
+          {hint}
+        </ThemedText>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onPress}
+        style={[styles.schoolButton, { backgroundColor: iconColor }]}
+      >
+        <ThemedText style={styles.schoolButtonText}>{actionLabel}</ThemedText>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function ImportScreen() {
   const theme = useTheme();
   const input = useRef<HTMLInputElement | null>(null);
   const { replaceCourses, clearCourses, courses, importedFileName, semesterStartDate, setSemesterStartDate } = useTimetable();
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ahuMode, setAhuMode] = useState<'import' | 'refresh' | null>(null);
+  const [cjluMode, setCjluMode] = useState<'import' | 'refresh' | null>(null);
+  const [hasAhuCredentials, setHasAhuCredentials] = useState(false);
+  const [hasCjluCredentials, setHasCjluCredentials] = useState(false);
+  const [schoolPickerVisible, setSchoolPickerVisible] = useState(false);
+  const [schoolWeb, setSchoolWeb] = useState<'cugb' | 'cjlu' | null>(null);
   // 学期开始日期：年 / 月 / 日三个输入框。月份/日期支持单数字输入（如 9 月 7 日
   // 输 9、7），输入框保留用户原样（不强制补零）；只有三者拼出合法 ISO
   // 'YYYY-MM-DD' 时才写入 store（所有消费方——网格日期、ICS 周次锚点——
@@ -57,6 +104,26 @@ export default function ImportScreen() {
   // 初始化时探测一次：Expo Go 返回 false，Development / EAS Build 返回 true。
   const [nativeAvailable] = useState<boolean | null>(probeNativeOnce);
   const IMPORT_COOLDOWN_MS = 3000;
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let active = true;
+    void Promise.all([loadAhuCredentials(), loadCjluCredentials()])
+      .then(([ahuCredentials, cjluCredentials]) => {
+        if (!active) return;
+        setHasAhuCredentials(ahuCredentials !== null);
+        setHasCjluCredentials(cjluCredentials !== null);
+      })
+      .catch(() => {
+        if (active) {
+          setHasAhuCredentials(false);
+          setHasCjluCredentials(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function choose(file?: { name: string; size?: number; type?: string; arrayBuffer: () => Promise<ArrayBuffer> } | { name: string; size?: number; type?: string; uri: string }) {
     if (!file) return;
@@ -312,6 +379,77 @@ export default function ImportScreen() {
             )}
           </ThemedView>
 
+          {Platform.OS === 'android' && (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSchoolPickerVisible(true)}
+                style={[styles.schoolPickerButton, { borderColor: theme.textSecondary + '44', backgroundColor: theme.backgroundSelected + '18' }]}
+              >
+                <Ionicons name="school-outline" size={22} color="#208AEF" />
+                <View style={styles.schoolPickerInfo}>
+                  <ThemedText type="smallBold">从教务系统导入</ThemedText>
+                  <ThemedText themeColor="textSecondary" style={styles.hint}>选择学校后打开官方教务入口</ThemedText>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
+              </Pressable>
+              <Modal visible={schoolPickerVisible} transparent animationType="slide" onRequestClose={() => setSchoolPickerVisible(false)}>
+                <View style={styles.pickerBackdrop}>
+                  <ThemedView style={styles.pickerCard}>
+                    <View style={styles.pickerHeader}>
+                      <ThemedText type="subtitle">选择教务系统</ThemedText>
+                      <Pressable onPress={() => setSchoolPickerVisible(false)} hitSlop={10}>
+                        <Ionicons name="close" size={24} color={theme.text} />
+                      </Pressable>
+                    </View>
+                    <SchoolEntry
+                      name="安徽大学"
+                      hint="官方教务系统 · 支持自动读取和刷新"
+                      iconColor="#208AEF"
+                      actionLabel="登录导入"
+                      onPress={() => { setSchoolPickerVisible(false); setAhuMode('import'); }}
+                    />
+                    {hasAhuCredentials && importedFileName?.startsWith('安徽大学教务系统') && (
+                      <Pressable
+                        onPress={() => { setSchoolPickerVisible(false); setAhuMode('refresh'); }}
+                        style={[styles.schoolButton, styles.refreshButton, { borderColor: '#208AEF' }]}
+                      >
+                        <Ionicons name="refresh" size={14} color="#208AEF" />
+                        <ThemedText style={styles.refreshButtonText}>刷新安徽大学课表</ThemedText>
+                      </Pressable>
+                    )}
+                    <SchoolEntry
+                      name="中国地质大学（北京）"
+                      hint="统一身份认证：cas.cugb.edu.cn"
+                      iconColor="#16A34A"
+                      actionLabel="打开官网"
+                      onPress={() => { setSchoolPickerVisible(false); setSchoolWeb('cugb'); }}
+                    />
+                    <SchoolEntry
+                      name="中国计量大学"
+                      hint="正方教务系统：jwxt.cjlu.edu.cn"
+                      iconColor="#F59E0B"
+                      actionLabel="登录导入"
+                      onPress={() => { setSchoolPickerVisible(false); setCjluMode('import'); }}
+                    />
+                    {hasCjluCredentials && importedFileName?.startsWith('中国计量大学教务系统') && (
+                      <Pressable
+                        onPress={() => { setSchoolPickerVisible(false); setCjluMode('refresh'); }}
+                        style={[styles.schoolButton, styles.refreshButton, { borderColor: '#F59E0B' }]}
+                      >
+                        <Ionicons name="refresh" size={14} color="#F59E0B" />
+                        <ThemedText style={[styles.refreshButtonText, { color: '#F59E0B' }]}>刷新中国计量大学课表</ThemedText>
+                      </Pressable>
+                    )}
+                    <ThemedText themeColor="textSecondary" style={styles.pickerHint}>
+                      安徽大学和中国计量大学均支持登录后读取、加密保存账号，以及后续手动刷新；中国地质大学（北京）暂未实现。
+                    </ThemedText>
+                  </ThemedView>
+                </View>
+              </Modal>
+            </>
+          )}
+
           <ThemedText type="subtitle">选择课表文件</ThemedText>
           <Pressable
             onPress={() => Platform.OS === 'web' ? input.current?.click() : void chooseNativeFile()}
@@ -365,6 +503,104 @@ export default function ImportScreen() {
           </ThemedText>
           {!!courses.length && <Pressable onPress={clearCourses} style={[styles.clear, { borderColor: theme.textSecondary + '55' }]}><Ionicons name="trash-outline" size={16} color={theme.textSecondary} style={styles.clearIcon} /><ThemedText themeColor="textSecondary">清空当前课表</ThemedText></Pressable>}
         </ScrollView>
+        {Platform.OS === 'android' && ahuMode && (
+          <AhuImportModal
+            visible
+            mode={ahuMode}
+            onCancel={() => setAhuMode(null)}
+            onCredentialsSaved={() => setHasAhuCredentials(true)}
+            onCredentialsMissing={() => setHasAhuCredentials(false)}
+            onImported={(ahuCourses, semesterName, droppedActivities) => {
+              const warnings: ReportWarning[] = [];
+              if (droppedActivities > 0) {
+                warnings.push({
+                  category: 'system',
+                  severity: 'warning',
+                  message: `教务系统返回的 ${droppedActivities} 条课程安排格式异常，已跳过，请核对课程数量`,
+                  at: Date.now(),
+                });
+              }
+              if (semesterStartDate) {
+                warnings.push({
+                  category: 'system',
+                  severity: 'warning',
+                  message: `教务系统未提供开学日期，当前仍使用 ${semesterStartDate}，请确认它属于 ${semesterName}`,
+                  at: Date.now(),
+                });
+              }
+              const sourceName = `安徽大学教务系统 · ${semesterName}`;
+              if (ahuMode === 'refresh') {
+                const existingAhuCourses = courses.filter((course) => course.id.startsWith('ahu-'));
+                const unrelatedCourses = courses.filter((course) => !course.id.startsWith('ahu-'));
+                const changes = summarizeAhuCourseChanges(existingAhuCourses, ahuCourses);
+                const totalChanges = changes.added + changes.removed + changes.changed;
+                if (totalChanges > 0) {
+                  const merged = mergeAhuCourseCustomizations(existingAhuCourses, ahuCourses);
+                  replaceCourses([...unrelatedCourses, ...merged], sourceName, semesterStartDate, { warnings, suggestions: [] });
+                  setStatus(`刷新完成：新增 ${changes.added} 门，移除 ${changes.removed} 门，调整 ${changes.changed} 门`);
+                } else {
+                  setStatus(droppedActivities > 0
+                    ? `课表无调整；另有 ${droppedActivities} 条异常安排未导入`
+                    : '刷新完成：课表无调整');
+                }
+                setAhuMode(null);
+                return;
+              }
+              setAhuMode(null);
+              setStatus('');
+              setPending({
+                courses: ahuCourses,
+                report: { warnings, suggestions: [] },
+                fileName: sourceName,
+              });
+            }}
+          />
+        )}
+        {Platform.OS === 'android' && cjluMode && (
+          <CjluImportModal
+            visible
+            mode={cjluMode}
+            onCancel={() => setCjluMode(null)}
+            onCredentialsSaved={() => setHasCjluCredentials(true)}
+            onCredentialsMissing={() => setHasCjluCredentials(false)}
+            onImported={(cjluCourses, semesterName, droppedActivities) => {
+              const warnings: ReportWarning[] = droppedActivities > 0 ? [{
+                category: 'system',
+                severity: 'warning',
+                message: `中国计量大学有 ${droppedActivities} 条课程安排格式异常，已跳过，请核对课程数量`,
+                at: Date.now(),
+              }] : [];
+              const sourceName = `中国计量大学教务系统 · ${semesterName}`;
+              if (cjluMode === 'refresh') {
+                const existingCjluCourses = courses.filter((course) => course.id.startsWith('cjlu-'));
+                const unrelatedCourses = courses.filter((course) => !course.id.startsWith('cjlu-'));
+                const changes = summarizeAhuCourseChanges(existingCjluCourses, cjluCourses);
+                const totalChanges = changes.added + changes.removed + changes.changed;
+                if (totalChanges > 0) {
+                  const merged = mergeAhuCourseCustomizations(existingCjluCourses, cjluCourses);
+                  replaceCourses([...unrelatedCourses, ...merged], sourceName, semesterStartDate, { warnings, suggestions: [] });
+                  setStatus(`刷新完成：新增 ${changes.added} 门，移除 ${changes.removed} 门，调整 ${changes.changed} 门`);
+                } else {
+                  setStatus(droppedActivities > 0 ? `课表无调整；另有 ${droppedActivities} 条异常安排未导入` : '刷新完成：课表无调整');
+                }
+                setCjluMode(null);
+                return;
+              }
+              setCjluMode(null);
+              setStatus('');
+              setPending({ courses: cjluCourses, report: { warnings, suggestions: [] }, fileName: sourceName });
+            }}
+          />
+        )}
+        {Platform.OS === 'android' && schoolWeb === 'cugb' && (
+          <SchoolWebModal
+            visible
+            name="中国地质大学（北京）"
+            initialUrl="https://cas.cugb.edu.cn/"
+            allowedHosts={['cas.cugb.edu.cn', 'jwglxt.cugb.edu.cn', 'portals.cugb.edu.cn', 'stu.cugb.edu.cn', 'cugb.edu.cn']}
+            onClose={() => setSchoolWeb(null)}
+          />
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -375,6 +611,13 @@ const styles = StyleSheet.create({
   safe: { flex: 1, maxWidth: MaxContentWidth, width: '100%', alignSelf: 'center' },
   content: { padding: Spacing.four, gap: Spacing.three },
   section: { padding: Spacing.three, borderRadius: Spacing.two, gap: Spacing.two, marginBottom: Spacing.two },
+  schoolList: { padding: Spacing.three, borderRadius: Spacing.two, gap: Spacing.three, marginBottom: Spacing.two },
+  schoolPickerButton: { padding: Spacing.three, borderRadius: Spacing.two, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  schoolPickerInfo: { flex: 1 },
+  pickerBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000066' },
+  pickerCard: { padding: Spacing.four, borderTopLeftRadius: Spacing.three, borderTopRightRadius: Spacing.three, gap: Spacing.three },
+  pickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  pickerHint: { fontSize: 12, lineHeight: 18 },
   nativeMissingBanner: { borderWidth: 1, borderColor: '#D6913A' },
   hint: { fontSize: 12, marginBottom: Spacing.one, opacity: 0.7 },
   dateInput: {
@@ -394,6 +637,14 @@ const styles = StyleSheet.create({
   button: { padding: Spacing.three, borderRadius: Spacing.two, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: Spacing.one },
   buttonIcon: { marginRight: Spacing.one },
   buttonText: { fontWeight: '700' },
+  schoolRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  schoolIcon: { width: 42, height: 42, borderRadius: Spacing.two, alignItems: 'center', justifyContent: 'center' },
+  schoolInfo: { flex: 1, minWidth: 0 },
+  schoolActions: { gap: Spacing.one, alignItems: 'stretch' },
+  schoolButton: { paddingHorizontal: Spacing.three, paddingVertical: Spacing.two, borderRadius: Spacing.two },
+  schoolButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  refreshButton: { borderWidth: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4 },
+  refreshButtonText: { color: '#208AEF', fontWeight: '700', fontSize: 13 },
   status: { padding: Spacing.three, borderRadius: Spacing.two },
   clear: { padding: Spacing.two, borderWidth: 1, alignItems: 'center', borderRadius: Spacing.two, flexDirection: 'row', gap: Spacing.one },
   clearIcon: {}

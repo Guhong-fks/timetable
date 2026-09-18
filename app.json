@@ -2,7 +2,7 @@
   "expo": {
     "name": "课程表",
     "slug": "course-table-app",
-    "version": "1.0.5",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "coursetableapp",
@@ -52,7 +52,8 @@
             ]
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
