@@ -3,7 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -14,6 +14,8 @@ export interface SchoolWebModalProps {
   initialUrl: string;
   allowedHosts: string[];
   onClose: () => void;
+  nextUrl?: string;
+  nextLabel?: string;
 }
 
 function isAllowedUrl(url: string, allowedHosts: string[]): boolean {
@@ -31,8 +33,11 @@ export function SchoolWebModal({
   initialUrl,
   allowedHosts,
   onClose,
+  nextUrl,
+  nextLabel = '进入教务系统',
 }: SchoolWebModalProps) {
   const theme = useTheme();
+  const webViewRef = useRef<WebView>(null);
   const [status, setStatus] = useState('请在官方页面完成登录');
   const [loading, setLoading] = useState(true);
 
@@ -56,9 +61,23 @@ export function SchoolWebModal({
                 {status}
               </ThemedText>
             </View>
+            {nextUrl && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={nextLabel}
+                onPress={() => {
+                  webViewRef.current?.injectJavaScript(`window.location.href=${JSON.stringify(nextUrl)}; true;`);
+                  setStatus(`正在打开${nextLabel}…`);
+                }}
+                style={[styles.nextButton, { backgroundColor: '#16A34A' }]}
+              >
+                <ThemedText style={styles.nextButtonText}>{nextLabel}</ThemedText>
+              </Pressable>
+            )}
             {loading ? <ActivityIndicator color="#208AEF" /> : <View style={styles.headerSpacer} />}
           </View>
           <WebView
+            ref={webViewRef}
             source={{ uri: initialUrl }}
             javaScriptEnabled
             domStorageEnabled
@@ -73,9 +92,16 @@ export function SchoolWebModal({
               setLoading(true);
               setStatus('正在加载官方页面…');
             }}
-            onLoadEnd={() => {
+            onLoadEnd={({ nativeEvent }) => {
               setLoading(false);
-              setStatus('请在官方页面完成登录；登录后可返回本页导入课表文件');
+              try {
+                const hostname = new URL(nativeEvent.url).hostname;
+                setStatus(nextUrl && (hostname === 'elib.cugb.edu.cn' || hostname === 'cas.cugb.edu.cn' || hostname === 'portals.cugb.edu.cn' || hostname === 'stu.cugb.edu.cn')
+                  ? '统一认证完成后，点击右上角“进入教务系统”'
+                  : '请在官方页面完成登录');
+              } catch {
+                setStatus('请在官方页面完成登录');
+              }
             }}
             onError={() => {
               setLoading(false);
@@ -104,5 +130,7 @@ const styles = StyleSheet.create({
   titleWrap: { flex: 1 },
   subtitle: { fontSize: 12, marginTop: 2 },
   headerSpacer: { width: 20 },
+  nextButton: { paddingHorizontal: Spacing.two, paddingVertical: Spacing.one, borderRadius: Spacing.one },
+  nextButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   webView: { flex: 1, marginTop: Spacing.two },
 });

@@ -1,7 +1,7 @@
 import { AhuImportModal } from '@/components/AhuImportModal';
 import { CjluImportModal } from '@/components/CjluImportModal';
+import { CugbImportModal } from '@/components/CugbImportModal';
 import { ImportPreview } from '@/components/ImportPreview';
-import { SchoolWebModal } from '@/components/SchoolWebModal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -420,9 +420,9 @@ export default function ImportScreen() {
                     )}
                     <SchoolEntry
                       name="中国地质大学（北京）"
-                      hint="统一身份认证：cas.cugb.edu.cn"
+                      hint="教务系统（学生端）：jwglxt.cugb.edu.cn（需校园网）"
                       iconColor="#16A34A"
-                      actionLabel="打开官网"
+                      actionLabel="打开插件"
                       onPress={() => { setSchoolPickerVisible(false); setSchoolWeb('cugb'); }}
                     />
                     <SchoolEntry
@@ -442,7 +442,7 @@ export default function ImportScreen() {
                       </Pressable>
                     )}
                     <ThemedText themeColor="textSecondary" style={styles.pickerHint}>
-                      安徽大学和中国计量大学均支持登录后读取、加密保存账号，以及后续手动刷新；中国地质大学（北京）暂未实现。
+                      安徽大学和中国计量大学均支持登录后读取、加密保存账号，以及后续手动刷新。
                     </ThemedText>
                   </ThemedView>
                 </View>
@@ -593,12 +593,25 @@ export default function ImportScreen() {
           />
         )}
         {Platform.OS === 'android' && schoolWeb === 'cugb' && (
-          <SchoolWebModal
+          <CugbImportModal
             visible
-            name="中国地质大学（北京）"
-            initialUrl="https://cas.cugb.edu.cn/"
-            allowedHosts={['cas.cugb.edu.cn', 'jwglxt.cugb.edu.cn', 'portals.cugb.edu.cn', 'stu.cugb.edu.cn', 'cugb.edu.cn']}
             onClose={() => setSchoolWeb(null)}
+            onImported={(cugbCourses, droppedActivities) => {
+              setSchoolWeb(null);
+              setPending({
+                courses: cugbCourses,
+                report: {
+                  warnings: droppedActivities > 0 ? [{
+                    category: 'system',
+                    severity: 'warning',
+                    message: `中国地质大学（北京）有 ${droppedActivities} 条课程安排格式异常，已跳过，请核对课程数量`,
+                    at: Date.now(),
+                  }] : [],
+                  suggestions: [],
+                },
+                fileName: '中国地质大学（北京）教务系统',
+              });
+            }}
           />
         )}
       </SafeAreaView>

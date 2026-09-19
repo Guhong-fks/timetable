@@ -7,6 +7,7 @@ import {
 } from '@/lib/importers/ahu-importer';
 import { TimeSlot, WeekDay } from '@/types/timetable';
 import { CJLU_COURSE_EXTRACTION_SCRIPT, CJLU_CREDENTIAL_CAPTURE_SCRIPT, buildCjluAutoLoginScript, parseCjluCoursePayload } from '@/lib/importers/cjlu-importer';
+import { CUGB_PAGE_READER_SCRIPT, parseCugbCourseRows } from '@/lib/importers/cugb-importer';
 
 describe('安徽大学教务课表导入', () => {
   it('从教务页脚本中识别当前学期', () => {
@@ -184,5 +185,21 @@ describe('中国计量大学教务课表导入', () => {
     expect(() => new Function(CJLU_CREDENTIAL_CAPTURE_SCRIPT)).not.toThrow();
     expect(() => new Function(buildCjluAutoLoginScript({ username: 'u', password: 'p' }))).not.toThrow();
     expect(() => new Function(CJLU_COURSE_EXTRACTION_SCRIPT)).not.toThrow();
+  });
+});
+
+describe('中国地质大学（北京）教务插件', () => {
+  it('解析当前页面表格行', () => {
+    const result = parseCugbCourseRows([{ name: '地球科学概论', day: '周一', periods: '1-2节', weeks: '1-16周', teacher: '张老师', location: '教一楼101', code: 'C001' }]);
+    expect(result.droppedRows).toBe(0);
+    expect(result.courses[0]).toMatchObject({
+      id: 'cugb-C001-1', name: '地球科学概论', day: WeekDay.MONDAY,
+      startPeriod: 1, endPeriod: 2, weekList: Array.from({ length: 16 }, (_, index) => index + 1),
+      teacher: { name: '张老师' }, location: { address: '教一楼101' },
+    });
+  });
+
+  it('生成的页面读取脚本可编译', () => {
+    expect(() => new Function(CUGB_PAGE_READER_SCRIPT)).not.toThrow();
   });
 });
