@@ -14,7 +14,6 @@ import com.fksguh.coursetableapp.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
-import kotlin.math.roundToInt
 
 /**
  * 璇捐〃妗岄潰灏忕粍浠?Provider銆? *
@@ -51,11 +50,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         private const val DEFAULT_PERIOD_MINUTES = 45
 
         /**
-         * 妗岄潰缃戞牸鍗曞厓楂樺害锛坉p/鏍硷級銆傜敱瀹炴祴鎺ㄧ畻锛?脳2 灏忕粍浠?options 楂樺害 鈮?183dp
-         * 锛? 鏍硷級鈫?绾?91.5dp/鏍笺€傝绋嬫樉绀轰笂闄愭寜鈥滈珮搴︽牸瀛愭暟鈥濆喅瀹氾細
-         * 2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傦紙妯帓鍚屾牱鍙楁闄愬埗锛夈€?         */
-        private const val CELL_HEIGHT_DP = 75f
-
+         * 课程卡片固定为 56dp 高度；组件高度只用于限制可显示的课程数量。
+         */
         private val DAY_KEYS = arrayOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
         )
@@ -245,7 +241,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             else -> {
                 views.setViewVisibility(R.id.hcourse_row, View.GONE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
-                // 鍗＄墖鐢?weight 骞冲垎楂樺害閾烘弧锛涙樉绀轰笂闄?= 楂樺害鏍煎瓙鏁帮紙2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傦級
+                // 固定高度卡片按组件高度限制显示数量，避免卡片被剩余空间拉伸。
                 val maxCount = heightCells
                 for (i in 0 until 6) {
                     if (i < courses.size && i < maxCount) {
