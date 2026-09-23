@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     单科布局：今天只有 1 门课时使用。
-    卡片高度固定（56dp，≈ 3×2 尺寸下两科时每张卡的高度），
-    下方自然留白，避免 weight 撑满整高导致卡片过肥。
+    卡片默认高度为 52dp；Android 12+ 由 Provider 按可用高度扩展，
+    最大 88dp。下方保留适量空白，避免单张卡片被撑得过高。
     头部与主布局 widget_timetable.xml 保持一致（id 相同）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -73,7 +73,7 @@
     <LinearLayout
         android:id="@+id/course1_container"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
+        android:layout_height="52dp"
         android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:background="@drawable/widget_course_blue"

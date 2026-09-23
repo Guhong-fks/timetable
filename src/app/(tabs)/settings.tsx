@@ -27,9 +27,9 @@ import { useAppTheme } from '@/state/theme-context';
 import { useTimetable } from '@/state/timetable';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AlertButton } from 'react-native';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SettingsScreen() {
@@ -42,6 +42,7 @@ export default function SettingsScreen() {
   } = useBackground();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [leadMinutes, setLeadMinutes] = useState(DEFAULT_LEAD_MINUTES);
+  const exactAlarmSettingsOpened = useRef(false);
   const [leadModalVisible, setLeadModalVisible] = useState(false);
   const [currentVersion] = useState(() => getCurrentVersion());
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -63,7 +64,7 @@ export default function SettingsScreen() {
   /** 用指定提前分钟数重排所有课程通知（仅在通知开启且有课表时生效）。
    * 作为一个调度批次运行：与 TimetableContext 的增量 effect 共享同一 epoch
    * 防抖，两个入口并发时以最新批次为准，不会交错覆盖。 */
-  const rescheduleNotifications = async (lead: number) => {
+  const rescheduleNotifications = useCallback(async (lead: number) => {
     if (courses.length === 0 || !semesterStartDate) return;
     const epoch = beginScheduleEpoch();
     const prefs = await loadPeriodSchedule();
@@ -73,6 +74,27 @@ export default function SettingsScreen() {
     if (!isCurrentScheduleEpoch(epoch)) return;
     if (!granted) return;
     await scheduleAllNotifications(courses, semesterStartDate, prefs.periodTimes, prefs.periodDurations, lead);
+  }, [courses, semesterStartDate]);
+
+  // 授权后旧的非精确闹钟不会自动变成精确闹钟；返回应用时重排。
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const subscription = AppState.addEventListener('change', state => {
+      if (state !== 'active' || !exactAlarmSettingsOpened.current) return;
+      exactAlarmSettingsOpened.current = false;
+      if (notificationsEnabled) void rescheduleNotifications(leadMinutes);
+    });
+    return () => subscription.remove();
+  }, [leadMinutes, notificationsEnabled, rescheduleNotifications]);
+
+  const openExactAlarmSettings = async () => {
+    exactAlarmSettingsOpened.current = true;
+    try {
+      await Linking.sendIntent('android.settings.REQUEST_SCHEDULE_EXACT_ALARM');
+    } catch {
+      exactAlarmSettingsOpened.current = false;
+      Alert.alert('无法打开系统设置', '请在系统设置的「特殊应用权限 → 闹钟与提醒」中允许课程表。');
+    }
   };
 
   const toggleNotifications = async (enabled: boolean) => {
@@ -374,6 +396,17 @@ export default function SettingsScreen() {
                     <ThemedText style={styles.customButtonText}>自定义</ThemedText>
                   </Pressable>
                 </View>
+
+                {Platform.OS === 'android' && Number(Platform.Version) >= 31 && (
+                  <View>
+                    <ThemedText themeColor="textSecondary" style={styles.fileInfo}>
+                      如需准点提醒，请在系统设置的「闹钟与提醒」中允许课程表。
+                    </ThemedText>
+                    <Pressable onPress={openExactAlarmSettings} style={styles.testButton} accessibilityRole="button">
+                      <ThemedText style={styles.testText}>打开闹钟与提醒设置</ThemedText>
+                    </Pressable>
+                  </View>
+                )}
 
               </>
             )}

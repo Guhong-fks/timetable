@@ -2,7 +2,7 @@
   "expo": {
     "name": "课程表",
     "slug": "course-table-app",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "coursetableapp",
@@ -18,7 +18,8 @@
       "package": "com.fksguh.coursetableapp",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
-        "VIBRATE"
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM"
       ]
     },
     "web": {

@@ -7,7 +7,9 @@ import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import com.fksguh.coursetableapp.R
@@ -49,9 +51,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         private const val PERIOD_STEP_MINUTES = 50
         private const val DEFAULT_PERIOD_MINUTES = 45
 
-        /**
-         * 课程卡片固定为 56dp 高度；组件高度只用于限制可显示的课程数量。
-         */
+        private const val MIN_COURSE_HEIGHT_DP = 52f
+        private const val MAX_COURSE_HEIGHT_DP = 88f
         private val DAY_KEYS = arrayOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
         )
@@ -178,16 +179,15 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         // 楂樺害鏍煎瓙鏁?= 鏄剧ず璇剧▼鏁颁笂闄愶細2 鏍艰嚦澶?2 鑺傘€? 鏍艰嚦澶?3 鑺傘€?~6 鏍煎搴?4~6 鑺傦紝
         // 灏侀《 6 鑺傦紙绔栨帓涓庢í鎺掍竴鑷达級
         // 按每节卡片最小需要高度反推能放几节，放不进就少显示，避免文字挤压重叠
-        val headerReserveDp = 46f
+        val headerReserveDp = 40f
         val paddingDp = 24f
         val gapDp = 6f
-        val minCellDp = 60f
+        val minCellDp = MIN_COURSE_HEIGHT_DP
         val availDp = (height - headerReserveDp - paddingDp).coerceAtLeast(0f)
-        val heightCells = (availDp / (minCellDp + gapDp)).toInt().coerceIn(1, 6)
+        val heightCells = ((availDp + gapDp) / (minCellDp + gapDp)).toInt().coerceIn(1, 6)
         val courses = widgetData.courses
 
-        // 鍗曠锛堜笖闈炴í鎺掞級鏃跺垏鎹㈠浐瀹氶珮搴﹀竷灞€锛氬崱鐗?56dp 鍥哄畾銆佷笅鏂圭暀鐧斤紝
-        // 单门课程使用固定高度布局，避免卡片被拉伸。
+        // 单门课程使用独立布局，并限制卡片最大高度。
         val useSingleLayout = courses.size == 1 && !wide
         val views = RemoteViews(
             context.packageName,
@@ -214,8 +214,13 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(R.id.empty_container, View.VISIBLE)
             }
             useSingleLayout -> {
-                // 鍗曠鍥哄畾楂樺害甯冨眬锛氬彧璁剧疆璇ュ竷灞€瀛樺湪鐨?id
+                // 单科布局只包含第一张课卡。
                 val palette = COURSE_PALETTE[courseHueIndex(courses[0]["name"] ?: "")]
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val courseHeightDp = (availDp - gapDp)
+                        .coerceIn(MIN_COURSE_HEIGHT_DP, MAX_COURSE_HEIGHT_DP)
+                    views.setViewLayoutHeight(R.id.course1_container, courseHeightDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
                 views.setInt(R.id.course1_container, "setBackgroundResource", palette.bgRes)
                 views.setInt(R.id.course1_accent, "setBackgroundColor", palette.color)
                 views.setTextViewText(R.id.course1_name, courses[0]["name"] ?: "")
@@ -241,12 +246,17 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             else -> {
                 views.setViewVisibility(R.id.hcourse_row, View.GONE)
                 views.setViewVisibility(R.id.empty_container, View.GONE)
-                // 固定高度卡片按组件高度限制显示数量，避免卡片被剩余空间拉伸。
-                val maxCount = heightCells
+                val maxCount = minOf(courses.size, heightCells, V_CONTAINERS.size)
+                // 在可用高度内均分课卡，设置上限以免只有一门课时被拉得过高。
+                val courseHeightDp = ((availDp - gapDp * maxCount) / maxCount)
+                    .coerceIn(MIN_COURSE_HEIGHT_DP, MAX_COURSE_HEIGHT_DP)
                 for (i in 0 until 6) {
-                    if (i < courses.size && i < maxCount) {
+                    if (i < maxCount) {
                         val palette = COURSE_PALETTE[courseHueIndex(courses[i]["name"] ?: "")]
                         views.setViewVisibility(V_CONTAINERS[i], View.VISIBLE)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            views.setViewLayoutHeight(V_CONTAINERS[i], courseHeightDp, TypedValue.COMPLEX_UNIT_DIP)
+                        }
                         views.setInt(V_CONTAINERS[i], "setBackgroundResource", palette.bgRes)
                         views.setInt(V_ACCENTS[i], "setBackgroundColor", palette.color)
                         views.setTextViewText(V_NAMES[i], courses[i]["name"] ?: "")
@@ -259,7 +269,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         }
 
         val clickIntent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("$SCHEME://widget")
+            // 直达首页，避免 /widget 中转路由在返回栈中留下额外一层。
+            data = Uri.parse("$SCHEME:///")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -316,9 +327,15 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                     "name" to name,
                     "location" to address,
                     "time" to time,
+                    "startPeriod" to obj.optInt("startPeriod", 0).toString(),
                     "endPeriod" to obj.optInt("endPeriod", 0).toString()
                 ))
             }
+
+            // 数据写入顺序不一定是上课顺序；先排序再截取可显示的课程。
+            allToday.sortWith(compareBy<Map<String, String>>
+                { it["startPeriod"]?.toIntOrNull()?.takeIf { period -> period > 0 } ?: Int.MAX_VALUE }
+                .thenBy { it["endPeriod"]?.toIntOrNull() ?: Int.MAX_VALUE })
 
             // 已下课课程不再显示，进行中和未开始课程保留。
             val nowMs = System.currentTimeMillis()
