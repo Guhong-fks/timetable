@@ -7,17 +7,21 @@
  * boundary. Only the whitelist + size/URI checks remain.
  */
 
-// Allowed file types for import. anydoc (the Rust engine) parses all of
-// these natively; the recognizer consumes the same DocumentIR regardless.
+// Allowed file types for import. Office documents use anydoc; ICS and CSV
+// are handled by pure-JavaScript parsers.
 const ALLOWED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
   'application/msword', // .doc
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
   'text/calendar', // .ics — 从其他课程表软件"导出到日历"得到的文件
+  'text/csv', // .csv — WakeUp 课程表模板
+  'application/csv',
+  'text/comma-separated-values',
+  'application/vnd.ms-excel', // WPS / Excel may label CSV this way
   'application/octet-stream', // 部分 Android 选择器对 .ics 不注册 MIME
 ];
 
-const ALLOWED_EXTENSIONS = ['.docx', '.doc', '.xlsx', '.ics'];
+const ALLOWED_EXTENSIONS = ['.docx', '.doc', '.xlsx', '.ics', '.csv'];
 
 // File size limit (in bytes) — enforced by validateFile / validateBufferSize.
 const MAX_DOCX_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -56,7 +60,7 @@ export function validateFile(file: { name: string; size?: number; type?: string;
   }
   const ext = file.name.substring(lastDot).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      return { valid: false, error: `不支持的文件类型: ${ext}，仅支持 .docx / .doc / .xlsx / .ics` };
+      return { valid: false, error: `不支持的文件类型: ${ext}，仅支持 .docx / .doc / .xlsx / .ics / .csv` };
     }
 
   // (3) MIME — when present must be in the allow-list.

@@ -35,6 +35,7 @@ import {
 import { recognizeCourses, type IrTableBlock } from '@/lib/engine/recognizer';
 import { collectParseDiagnostics, serializeDiagnostics } from '@/lib/engine/parseDiagnostics';
 import { parseIcsTimetable, type IcsPeriodSchedule } from '@/lib/importers/ics-parser';
+import { parseWakeupCsv } from '@/lib/importers/wakeup-csv-importer';
 
 // Type-only reference to react-native-anydoc: produces no runtime import, so
 // Nitro is not loaded at boot. The runtime value is fetched via
@@ -272,9 +273,8 @@ function mapFallbackReason(reason: string | undefined): string {
 // =============================================================================
 // parseTimetableFile — file-level entry point
 // -----------------------------------------------------------------------------
-// Every accepted extension routes through the SAME anydoc → recognizer
-// pipeline: the Rust engine parses .docx/.doc/.xlsx natively and the
-// position-first recognizer consumes the resulting DocumentIR unchanged.
+// Office documents use anydoc → recognizer. ICS and WakeUp CSV are parsed
+// directly in JavaScript so they work without the native document bridge.
 // =============================================================================
 
 type TimetableFile =
@@ -299,10 +299,11 @@ export async function parseTimetableFile(
     const icsSemesterStart = icsSemesterStartInput && icsSemesterStartInput.trim() ? icsSemesterStartInput.trim() : undefined;
     return parseIcsFile(buffer, icsSemesterStart, icsPeriodSchedule);
   }
+  if (lower.endsWith('.csv')) return parseCsvFile(buffer);
   if (lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.xlsx')) {
     return parseDocxFile(buffer);
   }
-  throw new Error('暂支持 .docx / .doc / .xlsx / .ics 课表文件。');
+  throw new Error('暂支持 .docx / .doc / .xlsx / .ics / .csv 课表文件。');
 }
 
 // =============================================================================
@@ -417,6 +418,53 @@ async function parseIcsFile(
     timetable: coursesToTimetable(courses),
     report: report.snapshot(),
     inferredSemesterStart: inferredSemesterStart ?? undefined,
+  };
+}
+
+function decodeCsvText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let offset = 0;
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) offset = 3;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return decodeUtf16Le(new Uint8Array(buffer.slice(2)));
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return decodeUtf16Be(new Uint8Array(buffer.slice(2)));
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer.slice(offset));
+  } catch {
+    throw new Error('CSV 编码无法识别，请另存为 UTF-8 CSV 后再导入');
+  }
+}
+
+function parseCsvFile(buffer: ArrayBuffer): ImportResult {
+  const report = ParseReport.getInstance();
+  report.clear();
+  const parsed = parseWakeupCsv(decodeCsvText(buffer));
+
+  for (const issue of parsed.diagnostics) {
+    report.addWarningFromParts(
+      issue.category,
+      'warning',
+      `CSV 第 ${issue.row} 行：${issue.message}`,
+      { rowIndex: issue.row - 2 },
+      issue.raw,
+    );
+  }
+
+  if (parsed.courses.length === 0) {
+    throw new ImportDiagnosticsError(
+      'CSV 中没有识别到有效课程，请检查模板表头、节次和周数。',
+      report.snapshot(),
+      JSON.stringify({ format: 'WakeUp CSV', totalRows: parsed.totalRows, diagnostics: parsed.diagnostics }),
+    );
+  }
+
+  return {
+    courses: parsed.courses,
+    timetable: coursesToTimetable(parsed.courses),
+    report: report.snapshot(),
   };
 }
 

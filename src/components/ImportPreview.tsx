@@ -56,9 +56,13 @@ export function ImportPreview({
   );
 
   const includedCount = useMemo(() => rows.filter((r) => r.included).length, [rows]);
-  const errorCount = useMemo(
-    () => report.warnings.filter((w) => w.severity === 'error').length,
+  const issueWarnings = useMemo(
+    () => report.warnings.filter((warning) => warning.severity !== 'info'),
     [report.warnings],
+  );
+  const errorCount = useMemo(
+    () => issueWarnings.filter((warning) => warning.severity === 'error').length,
+    [issueWarnings],
   );
 
   const patchRow = (index: number, patch: Partial<RowState>) => {
@@ -85,11 +89,23 @@ export function ImportPreview({
         <ThemedText themeColor="textSecondary">
           {fileName} · 解析出 {courses.length} 门课程。取消勾选即丢弃该课；点击字段可直接修正。
         </ThemedText>
-        {errorCount > 0 && (
+        {issueWarnings.length > 0 && (
           <ThemedView type="backgroundElement" style={[styles.warnBox, { borderColor: '#D6913A' }]}>
             <ThemedText type="small" style={{ color: '#D6913A' }}>
-              解析报告含 {errorCount} 条错误警告，建议展开核对对应课程（详见导入页的“查看解析详情”）。
+              {errorCount > 0
+                ? `解析报告含 ${issueWarnings.length} 条提示（${errorCount} 条错误），请核对后再导入。`
+                : `解析报告含 ${issueWarnings.length} 条提示，请核对后再导入。`}
             </ThemedText>
+            {issueWarnings.slice(0, 3).map((warning, index) => (
+              <ThemedText key={`${warning.at}-${index}`} type="small" themeColor="textSecondary">
+                {warning.message}
+              </ThemedText>
+            ))}
+            {issueWarnings.length > 3 && (
+              <ThemedText type="small" themeColor="textSecondary">
+                另有 {issueWarnings.length - 3} 条提示，导入后可在解析报告中查看。
+              </ThemedText>
+            )}
           </ThemedView>
         )}
         {rows.map((row, index) => (
@@ -171,7 +187,7 @@ export function ImportPreview({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: Spacing.four, gap: Spacing.three },
-  warnBox: { padding: Spacing.three, borderRadius: Spacing.two, borderWidth: 1 },
+  warnBox: { padding: Spacing.three, borderRadius: Spacing.two, borderWidth: 1, gap: Spacing.one },
   card: {
     padding: Spacing.three,
     borderRadius: Spacing.two,

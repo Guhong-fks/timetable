@@ -229,6 +229,10 @@ export default function ImportScreen() {
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           'application/msword',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv',
+          'application/csv',
+          'text/comma-separated-values',
+          'application/vnd.ms-excel',
           'text/calendar',
           // Some pickers expose .ics only by extension (no MIME registered).
           'application/octet-stream',
@@ -304,7 +308,7 @@ export default function ImportScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <ThemedText type="title">导入课表</ThemedText>
           <ThemedText themeColor="textSecondary">
-            选择你的课表文件（.docx / .doc / .xlsx / .ics），解析后可预览确认。建议导入word文件前先删除课表以外的无关信息。
+            选择你的课表文件（.docx / .doc / .xlsx / .ics / .csv），解析后可预览确认。建议导入 Word 文件前先删除课表以外的无关信息。
           </ThemedText>
 
           {/* Surface the missing-native-module case early. On Expo Go the
@@ -462,7 +466,7 @@ export default function ImportScreen() {
             <input
               ref={input}
               type="file"
-              accept=".docx,.doc,.xlsx,.ics"
+              accept=".docx,.doc,.xlsx,.ics,.csv"
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -494,6 +498,10 @@ export default function ImportScreen() {
             <ThemedText type="smallBold">导入 .ics 日历文件：</ThemedText>
             在其他课程表 App（WakeUp/超级课程表等）中打开课表 → 分享/更多 → “导出到日历文件”，得到
             .ics 文件后在这里导入。
+          </ThemedText>
+          <ThemedText themeColor="textSecondary">
+            <ThemedText type="smallBold">导入 WakeUp CSV：</ThemedText>
+            在 WakeUp 导出课程 CSV 模板后，可直接选择 .csv 文件；导入前会显示课程预览，无法识别的行会在解析报告中提示。
           </ThemedText>
           <ThemedText themeColor="textSecondary">
             <ThemedText type="smallBold">周次换算：</ThemedText>

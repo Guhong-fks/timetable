@@ -30,6 +30,49 @@ export interface WidgetCourseData {
   teacher: { name: string };
   weekList: number[];
   isOddEven?: 'odd' | 'even' | null;
+  /** Preformatted clock range for the native home-screen widget. */
+  timeText?: string;
+}
+
+function parseClockMinutes(value: string | undefined): number | null {
+  const match = /^([0-9]{1,2}):([0-5][0-9])$/.exec(value?.trim() ?? '');
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  return hour <= 23 ? hour * 60 + minute : null;
+}
+
+function defaultPeriodStart(period: number): number | null {
+  const minutes = 8 * 60 + (period - 1) * 50;
+  return minutes < 24 * 60 ? minutes : null;
+}
+
+function formatClockMinutes(minutes: number): string {
+  const normalized = ((minutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const hour = Math.floor(normalized / 60).toString().padStart(2, '0');
+  const minute = (normalized % 60).toString().padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
+/** Use configured period times, falling back to 08:00 / 50 / 45 minutes. */
+export function buildWidgetTimeText(
+  course: Pick<WidgetCourseData, 'startPeriod' | 'endPeriod' | 'timeSlot'>,
+  periodTimes: Record<string, string>,
+  periodDurations: Record<string, number>,
+): string {
+  const { startPeriod, endPeriod, timeSlot } = course;
+  if (!Number.isInteger(startPeriod) || !Number.isInteger(endPeriod)
+    || startPeriod < 1 || endPeriod < startPeriod) return timeSlot;
+
+  const startMinutes = parseClockMinutes(periodTimes[String(startPeriod)]) ?? defaultPeriodStart(startPeriod);
+  const endStartMinutes = parseClockMinutes(periodTimes[String(endPeriod)]) ?? defaultPeriodStart(endPeriod);
+  if (startMinutes === null || endStartMinutes === null) return `第${startPeriod}-${endPeriod}节`;
+
+  const configuredDuration = periodDurations[String(endPeriod)];
+  const duration = Number.isFinite(configuredDuration) && configuredDuration > 0
+    ? configuredDuration
+    : 45;
+  return `${formatClockMinutes(startMinutes)}-${formatClockMinutes(endStartMinutes + duration)}`;
 }
 
 /**
@@ -61,9 +104,9 @@ export async function loadPeriodSchedule(): Promise<{
  * （<applicationId>.widgetdata / key=widgetdata），写入后库会立即广播
  * ACTION_APPWIDGET_UPDATE 触发 Provider 刷新。
  *
- * 写入的是“当前周”全量课程（不过滤星期），由原生端在每次 onUpdate 时按
- * “当天星期 + 周次”自行过滤，从而支持跨天/跨周自动更新（无需打开 App，
- * 依赖 widget_timetable_info.xml 的 updatePeriodMillis 系统级定时刷新）。
+ * 写入全学期课程（不按周次/星期过滤），由原生端在每次 onUpdate 时按
+ * “当前周 + 当天星期”自行筛选。这样即使跨周时 App 没启动，周期刷新也能显示
+ * 新周课程；无需打开 App，依赖 widget_timetable_info.xml 的 updatePeriodMillis。
  *
  * 同时写入节次时间/时长表：原生端据此判断“下课时间”，下课后的课程不再
  * 显示，并在每个下课时刻用 AlarmManager 自动刷新小组件。
@@ -82,12 +125,14 @@ export async function writeWidgetData(
       return;
     }
 
-    const weekCourses = courses.filter(course => course.weekList.includes(currentWeek));
     const { periodTimes, periodDurations } = await loadPeriodSchedule();
     const payload = JSON.stringify({
       currentWeek,
       semesterStartDate: semesterStartDate ?? '',
-      courses: weekCourses,
+      courses: courses.map(course => ({
+        ...course,
+        timeText: buildWidgetTimeText(course, periodTimes, periodDurations),
+      })),
       periodTimes,
       periodDurations,
     });

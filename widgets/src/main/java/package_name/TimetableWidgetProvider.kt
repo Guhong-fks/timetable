@@ -211,6 +211,10 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 setGone(views, V_CONTAINERS)
                 setGone(views, H_CONTAINERS)
                 views.setViewVisibility(R.id.hcourse_row, View.GONE)
+                views.setTextViewText(
+                    R.id.empty_text,
+                    if (widgetData.allToday.isNotEmpty()) "今日课程已结束" else "今日暂无课程"
+                )
                 views.setViewVisibility(R.id.empty_container, View.VISIBLE)
             }
             useSingleLayout -> {
@@ -443,6 +447,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     }
 
     private fun buildTimeString(obj: JSONObject): String {
+        val displayTime = obj.optString("timeText", "").trim()
+        if (displayTime.isNotEmpty()) return displayTime
+
         val start = obj.optInt("startPeriod", 0)
         val end = obj.optInt("endPeriod", 0)
         val slot = obj.optString("timeSlot", "")
